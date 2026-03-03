@@ -75,7 +75,8 @@ window.__charStatuses = {
                 <div class="char-preview">
                     <img x-show="cs[{{ cid }}]?.imgUrl"
                          :src="cs[{{ cid }}]?.imgUrl"
-                         alt="{{ char.name }}" loading="lazy">
+                         alt="{{ char.name }}" loading="lazy"
+                         style="width:100%;height:100%;object-fit:cover">
                     <div x-show="!cs[{{ cid }}]?.imgUrl" class="placeholder">
                         <span x-show="cs[{{ cid }}]?.status === 'generating'"
                               class="generating-indicator">Generating...</span>
@@ -302,7 +303,7 @@ window.__charStatuses = {
                 {% endif %}
 
                 {# ── Expandable Details ───────────────────────── #}
-                <div class="shot-details" x-show="expanded[{{ sid }}]" x-transition
+                <div class="shot-details" x-show="expanded[{{ sid }}]" x-transition>
                     {% if shot.dialogue %}
                     <div class="detail-block"><h4>Dialogue</h4>
                         <p class="dialogue-text">{{ shot.dialogue }}</p></div>
