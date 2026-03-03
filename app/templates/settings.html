@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+</div>
+
+{% if saved %}
+<div class="alert alert-success">Settings saved.</div>
+{% endif %}
+
+<form action="/settings/save" method="POST" class="settings-form">
+    {% for key, meta in settings_meta.items() %}
+    <div class="form-group">
+        <label for="{{ key }}">{{ meta.label }}</label>
+        {% if meta.type == "password" %}
+        <div class="input-row" x-data="{ show: false }">
+            <input :type="show ? 'text' : 'password'"
+                   id="{{ key }}" name="{{ key }}"
+                   value="{{ current.get(key, '') }}"
+                   class="form-input form-input-wide"
+                   autocomplete="off">
+            <button type="button" class="btn btn-xs btn-ghost" @click="show = !show">
+                <span x-text="show ? 'Hide' : 'Show'">Show</span>
+            </button>
+        </div>
+        {% elif meta.type == "number" %}
+        <input type="number" id="{{ key }}" name="{{ key }}"
+               value="{{ current.get(key, '') }}"
+               class="form-input">
+        {% else %}
+        <input type="text" id="{{ key }}" name="{{ key }}"
+               value="{{ current.get(key, '') }}"
+               class="form-input form-input-wide">
+        {% endif %}
+        {% if meta.help %}
+        <p class="form-help">{{ meta.help }}</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+</form>
+{% endblock %}

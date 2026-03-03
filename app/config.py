@@ -20,9 +20,30 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+    # Runtime overrides from DB — populated at startup and on settings save
+    _runtime_overrides: dict = {}
+
+    def get(self, key: str) -> str:
+        """Get a setting value, checking runtime overrides first."""
+        if key in self._runtime_overrides:
+            return self._runtime_overrides[key]
+        return getattr(self, key, "")
+
+    def set_override(self, key: str, value: str):
+        """Set a runtime override (also call save_to_db to persist)."""
+        self._runtime_overrides[key] = value
+
+    @property
+    def effective_kie_api_key(self) -> str:
+        return self._runtime_overrides.get("kie_api_key", self.kie_api_key)
+
+    @property
+    def effective_asset_dir(self) -> str:
+        return self._runtime_overrides.get("asset_dir", self.asset_dir)
+
     @property
     def asset_path(self) -> Path:
-        p = Path(self.asset_dir)
+        p = Path(self.effective_asset_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

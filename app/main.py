@@ -11,9 +11,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
-from app.database import init_db
+from app.database import init_db, async_session
 from app.api import episodes, generation, callbacks
+from app.api import settings_routes
 from app.services.scheduler import start_scheduler, stop_scheduler
+from app.services.scanner import scan_episodes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,16 +30,27 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Gorb & Pleck Studio...")
     await init_db()
 
-    # Ensure asset directories exist
-    settings.asset_path.mkdir(parents=True, exist_ok=True)
-    (settings.asset_path / "characters").mkdir(exist_ok=True)
-    (settings.asset_path / "episodes").mkdir(exist_ok=True)
+    # Load runtime settings from DB
+    async with async_session() as db:
+        await settings_routes.load_settings_from_db(db)
+        logger.info(f"Episodes directory: {settings.effective_asset_dir}")
 
-    if settings.kie_api_key:
+    # Ensure episode directory exists
+    settings.asset_path.mkdir(parents=True, exist_ok=True)
+
+    # Auto-scan episodes on startup
+    async with async_session() as db:
+        summary = await scan_episodes(db)
+        logger.info(
+            f"Episode scan: found={summary['found']}, "
+            f"created={summary['created']}, parsed={summary['parsed']}"
+        )
+
+    if settings.effective_kie_api_key:
         start_scheduler()
         logger.info("Background poller started")
     else:
-        logger.warning("No KIE_API_KEY set — generation disabled")
+        logger.warning("No KIE_API_KEY set - generation disabled")
 
     yield
 
@@ -56,8 +69,6 @@ static_dir = Path(__file__).parent / "static"
 template_dir = Path(__file__).parent / "templates"
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-# Also serve generated assets for preview
 app.mount("/assets", StaticFiles(directory=str(settings.asset_path)), name="assets")
 
 templates = Jinja2Templates(directory=str(template_dir))
@@ -67,6 +78,7 @@ app.state.templates = templates
 app.include_router(episodes.router)
 app.include_router(generation.router)
 app.include_router(callbacks.router)
+app.include_router(settings_routes.router)
 
 
 if __name__ == "__main__":

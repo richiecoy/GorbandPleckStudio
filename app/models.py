@@ -36,6 +36,15 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class AppSetting(Base):
+    """Runtime-configurable settings stored in SQLite."""
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, default="")
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Episode(Base):
     __tablename__ = "episodes"
 
@@ -74,9 +83,9 @@ class Character(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, default="")
     prompt = Column(Text, default="")
-    is_main = Column(Boolean, default=False)  # True for Gorb/Pleck
+    is_main = Column(Boolean, default=False)
     reference_image_path = Column(String(500), nullable=True)
-    reference_image_url = Column(String(1000), nullable=True)  # URL for API calls
+    reference_image_url = Column(String(1000), nullable=True)
     status = Column(Enum(AssetStatus), default=AssetStatus.PENDING)
     created_at = Column(DateTime, default=utcnow)
 
@@ -96,22 +105,18 @@ class Shot(Base):
     shot_type = Column(Enum(ShotType), nullable=False)
     status = Column(Enum(AssetStatus), default=AssetStatus.PENDING)
 
-    # Prompts parsed from visual plan
-    nano_prompt = Column(Text, default="")        # Nano Banana prompt (still or start frame)
-    veo3_prompt = Column(Text, default="")         # Veo3 prompt (if video shot)
+    nano_prompt = Column(Text, default="")
+    veo3_prompt = Column(Text, default="")
     dialogue = Column(Text, default="")
     direction_notes = Column(Text, default="")
 
-    # Character references needed for this shot
-    character_refs = Column(JSON, default=list)     # List of character names
+    character_refs = Column(JSON, default=list)
 
-    # Generated asset paths
     image_path = Column(String(500), nullable=True)
-    image_url = Column(String(1000), nullable=True)   # Temporary kie.ai URL
+    image_url = Column(String(1000), nullable=True)
     video_path = Column(String(500), nullable=True)
     video_url = Column(String(1000), nullable=True)
 
-    # Duration / metadata from visual plan
     duration = Column(String(50), default="")
     camera_notes = Column(Text, default="")
 
@@ -155,15 +160,13 @@ class Generation(Base):
     gen_type = Column(Enum(GenerationType), nullable=False)
     status = Column(Enum(AssetStatus), default=AssetStatus.GENERATING)
 
-    # Kie.ai task tracking
     task_id = Column(String(200), nullable=True)
     model = Column(String(100), default="")
     prompt_used = Column(Text, default="")
     reference_urls = Column(JSON, default=list)
 
-    # Results
-    result_url = Column(String(1000), nullable=True)   # Kie.ai temp URL
-    local_path = Column(String(500), nullable=True)     # Downloaded local path
+    result_url = Column(String(1000), nullable=True)
+    local_path = Column(String(500), nullable=True)
     error_message = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=utcnow)

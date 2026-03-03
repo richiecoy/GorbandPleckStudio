@@ -1,0 +1,164 @@
+"""
+Filesystem scanner - discovers episodes from the mounted episodes directory.
+Reads episode subdirectories matching ep{NN}-{slug}/ pattern.
+"""
+import re
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.config import settings
+from app.models import Episode, Shot, Character, ShotType
+from app.services.parser import parse_visual_plan
+
+logger = logging.getLogger(__name__)
+
+EP_PATTERN = re.compile(r'^ep(\d+)-(.+)$', re.IGNORECASE)
+
+
+async def scan_episodes(db: AsyncSession) -> dict:
+    """
+    Scan the episodes directory for episode folders.
+    Creates new Episode records, updates changed visual plans, auto-parses.
+    """
+    episodes_dir = settings.asset_path
+    summary = {"found": 0, "created": 0, "updated": 0, "parsed": 0, "errors": []}
+
+    if not episodes_dir.is_dir():
+        summary["errors"].append(f"Episodes directory not found: {episodes_dir}")
+        return summary
+
+    # Get existing episodes keyed by slug
+    result = await db.execute(
+        select(Episode).options(
+            selectinload(Episode.shots),
+            selectinload(Episode.characters),
+        )
+    )
+    existing = {ep.slug: ep for ep in result.scalars().all()}
+
+    # Scan filesystem
+    for entry in sorted(episodes_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+
+        match = EP_PATTERN.match(entry.name)
+        if not match:
+            continue
+
+        summary["found"] += 1
+        ep_number = int(match.group(1))
+        slug = entry.name
+
+        visual_plan_content = _read_visual_plan(entry)
+
+        if slug in existing:
+            episode = existing[slug]
+            if visual_plan_content and visual_plan_content != episode.visual_plan_raw:
+                episode.visual_plan_raw = visual_plan_content
+                episode.parsed_at = None  # Force re-parse
+                summary["updated"] += 1
+                logger.info(f"Updated visual plan for {slug}")
+        else:
+            raw_title = match.group(2).replace("-", " ").title()
+            episode = Episode(
+                number=ep_number,
+                slug=slug,
+                title=raw_title,
+                visual_plan_raw=visual_plan_content or "",
+            )
+            db.add(episode)
+            summary["created"] += 1
+            logger.info(f"Discovered new episode: {slug}")
+
+    await db.commit()
+
+    # Auto-parse any episodes with visual plans that haven't been parsed
+    result = await db.execute(
+        select(Episode)
+        .where(Episode.visual_plan_raw != "")
+        .where(Episode.parsed_at.is_(None))
+        .options(
+            selectinload(Episode.shots),
+            selectinload(Episode.characters),
+        )
+    )
+    unparsed = result.scalars().all()
+
+    for episode in unparsed:
+        try:
+            await _auto_parse(episode, db)
+            summary["parsed"] += 1
+            logger.info(f"Auto-parsed {episode.slug}")
+        except Exception as e:
+            summary["errors"].append(f"Parse error for {episode.slug}: {e}")
+            logger.error(f"Failed to parse {episode.slug}: {e}")
+
+    await db.commit()
+    return summary
+
+
+def _read_visual_plan(episode_dir: Path) -> str | None:
+    """Find and read visual-plan.md from an episode directory (case-insensitive)."""
+    for candidate in episode_dir.iterdir():
+        if candidate.is_file() and candidate.name.lower() == "visual-plan.md":
+            try:
+                return candidate.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.error(f"Failed to read {candidate}: {e}")
+                return None
+    return None
+
+
+async def _auto_parse(episode: Episode, db: AsyncSession):
+    """Parse visual plan and create shots + characters for an episode."""
+    parsed = parse_visual_plan(episode.visual_plan_raw)
+
+    if parsed.title:
+        episode.title = parsed.title
+    if parsed.location:
+        episode.location = parsed.location
+
+    # Clear existing shots/characters if re-parsing
+    for shot in list(episode.shots):
+        await db.delete(shot)
+    for char in list(episode.characters):
+        if not char.is_main:
+            await db.delete(char)
+
+    # Create characters
+    existing_names = {c.name for c in episode.characters}
+    for pc in parsed.characters:
+        if pc.name not in existing_names:
+            char = Character(
+                episode_id=episode.id,
+                name=pc.name,
+                description=pc.description,
+                prompt=pc.prompt,
+                is_main=False,
+            )
+            db.add(char)
+
+    # Create shots
+    for ps in parsed.shots:
+        shot = Shot(
+            episode_id=episode.id,
+            number=ps.number,
+            name=ps.name,
+            segment=ps.segment,
+            shot_type=ShotType(ps.shot_type),
+            nano_prompt=ps.nano_prompt,
+            veo3_prompt=ps.veo3_prompt,
+            dialogue=ps.dialogue,
+            direction_notes=ps.direction_notes,
+            character_refs=ps.character_refs,
+            duration=ps.duration,
+            camera_notes=ps.camera_notes,
+        )
+        db.add(shot)
+
+    episode.parsed_at = datetime.now(timezone.utc)

@@ -565,3 +565,75 @@ a:hover { color: var(--text); }
     .shot-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
     .character-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
+
+
+/* ── Settings Page ──────────────────────────────────────────────── */
+.settings-form {
+    max-width: 640px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+.form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.form-group label { font-weight: 500; color: var(--text); font-size: 0.9rem; }
+.form-input {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+}
+.form-input:focus { outline: none; border-color: var(--accent); }
+.form-input-wide { width: 100%; }
+.form-input-sm { padding: 0.3rem 0.5rem; font-size: 0.8rem; }
+.form-help { font-size: 0.78rem; color: var(--text-dim); margin: 0; }
+.form-actions { padding-top: 0.5rem; }
+.input-row { display: flex; gap: 0.5rem; align-items: center; }
+.input-row .form-input { flex: 1; }
+.alert { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }
+.alert-success { background: rgba(0, 206, 158, 0.12); color: var(--success); border: 1px solid var(--success); }
+
+/* ── Import & Preview Panels ────────────────────────────────────── */
+.shot-import, .shot-preview-payload {
+    padding: 0.5rem 0.75rem;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--border);
+}
+.import-form {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+.import-form select { width: 90px; }
+.payload-json {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.5rem;
+    background: var(--bg);
+    border-radius: 4px;
+}
+[x-cloak] { display: none !important; }
+
+/* ── Empty State ────────────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-dim);
+}
+.empty-state .hint { font-size: 0.8rem; margin-top: 0.5rem; }
+.empty-state code {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--card-bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+}
+.count-muted { color: var(--text-dim); font-size: 0.8rem; }

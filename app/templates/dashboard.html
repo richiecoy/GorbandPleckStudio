@@ -4,9 +4,20 @@
 {% block content %}
 <div class="page-header">
     <h1>Episodes</h1>
+    <div class="header-actions">
+        <form action="/episodes/scan" method="POST">
+            <button type="submit" class="btn btn-primary">&#x27F3; Scan Episodes Folder</button>
+        </form>
+    </div>
 </div>
 
-<!-- Episode Grid -->
+{% if not episodes %}
+<div class="empty-state">
+    <p>No episodes found. Click <strong>Scan Episodes Folder</strong> to discover episodes from the filesystem.</p>
+    <p class="hint">Looking in: <code>{{ config.effective_asset_dir if config else '/episodes' }}</code></p>
+</div>
+{% endif %}
+
 <div class="episode-grid">
     {% for ep in episodes %}
     <a href="/episodes/{{ ep.id }}" class="episode-card">
@@ -26,43 +37,15 @@
                 {% endif %}
             </div>
             <div class="stat-counts">
+                {% if stats.total > 0 %}
                 <span class="count-approved">{{ stats.approved }}</span> /
                 <span>{{ stats.total }} shots</span>
+                {% else %}
+                <span class="count-muted">No visual plan</span>
+                {% endif %}
             </div>
         </div>
     </a>
     {% endfor %}
-
-    <!-- New Episode Card -->
-    <div class="episode-card new-episode" x-data="{ open: false }">
-        <template x-if="!open">
-            <button @click="open = true" class="new-ep-trigger">
-                <span class="plus">+</span>
-                <span>New Episode</span>
-            </button>
-        </template>
-
-        <template x-if="open">
-            <form action="/episodes/create" method="POST" enctype="multipart/form-data" class="new-ep-form">
-                <div class="form-group">
-                    <label>Episode #</label>
-                    <input type="number" name="number" required min="1"
-                           value="{{ (episodes|length) + 1 }}" class="input-sm">
-                </div>
-                <div class="form-group">
-                    <label>Title</label>
-                    <input type="text" name="title" required placeholder="Episode title" class="input-sm">
-                </div>
-                <div class="form-group">
-                    <label>Visual Plan (optional)</label>
-                    <input type="file" name="visual_plan" accept=".md,.txt" class="input-file">
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Create</button>
-                    <button type="button" @click="open = false" class="btn btn-ghost">Cancel</button>
-                </div>
-            </form>
-        </template>
-    </div>
 </div>
 {% endblock %}
