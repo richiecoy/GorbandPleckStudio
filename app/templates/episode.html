@@ -26,23 +26,23 @@
     {% set stats = episode.stats %}
     <div class="stats-strip">
         <div class="stat-item">
-            <span class="stat-val" x-text="status.stats?.total ?? {{ stats.total }}">{{ stats.total }}</span>
+            <span class="stat-val" x-text="st.total">{{ stats.total }}</span>
             <span class="stat-label">Total</span>
         </div>
         <div class="stat-item stat-pending">
-            <span class="stat-val" x-text="status.stats?.pending ?? {{ stats.pending }}">{{ stats.pending }}</span>
+            <span class="stat-val" x-text="st.pending">{{ stats.pending }}</span>
             <span class="stat-label">Pending</span>
         </div>
         <div class="stat-item stat-generating">
-            <span class="stat-val" x-text="status.stats?.generating ?? {{ stats.generating }}">{{ stats.generating }}</span>
+            <span class="stat-val" x-text="st.generating">{{ stats.generating }}</span>
             <span class="stat-label">Generating</span>
         </div>
         <div class="stat-item stat-review">
-            <span class="stat-val" x-text="status.stats?.review ?? {{ stats.review }}">{{ stats.review }}</span>
+            <span class="stat-val" x-text="st.review">{{ stats.review }}</span>
             <span class="stat-label">Review</span>
         </div>
         <div class="stat-item stat-approved">
-            <span class="stat-val" x-text="status.stats?.approved ?? {{ stats.approved }}">{{ stats.approved }}</span>
+            <span class="stat-val" x-text="st.approved">{{ stats.approved }}</span>
             <span class="stat-label">Approved</span>
         </div>
     </div>
@@ -59,7 +59,7 @@
         </div>
         <div class="character-grid">
             {% for char in episode.characters %}
-            <div class="char-card" :class="charStatus({{ char.id }})">
+            <div class="char-card" :class="charClass({{ char.id }})">
                 <div class="char-preview">
                     {% if char.reference_image_path %}
                     <img src="/assets/{{ char.reference_image_path|urlencode_path }}"
@@ -116,10 +116,10 @@
             {% set is_generatable = shot.shot_type.value in ['still', 'veo3_clip', 'title_card'] %}
             {% set is_clip = shot.shot_type.value == 'veo3_clip' %}
 
-            <div class="shot-card" :class="shotBorderClass({{ sid }})">
+            <div class="shot-card" :class="'shot-' + (ss[{{ sid }}]?.overall || '')">
 
                 {# ── Shot Header ──────────────────────────────── #}
-                <div class="shot-header" @click="toggleExpand({{ sid }})">
+                <div class="shot-header" @click="expanded[{{ sid }}] = !expanded[{{ sid }}]">
                     <div class="shot-id">
                         <span class="shot-num">#{{ shot.number }}</span>
                         <span class="shot-type-badge type-{{ shot.shot_type.value }}">
@@ -127,43 +127,43 @@
                         </span>
                     </div>
                     <div class="shot-name">{{ shot.name }}</div>
-                    <span class="expand-arrow" :class="isExpanded({{ sid }}) && 'expanded'">&rsaquo;</span>
+                    <span class="expand-arrow" :class="expanded[{{ sid }}] && 'expanded'">&rsaquo;</span>
                 </div>
 
                 {% if is_generatable %}
                 {# ── IMAGE BOX ──────────────────────────────────── #}
                 <div class="asset-box image-box"
-                     :class="'asset-' + imgStatus({{ sid }})">
+                     :class="'asset-' + (ss[{{ sid }}]?.img || 'pending')">
                     <div class="asset-label">
                         <span class="asset-type-label">IMAGE</span>
                         <span class="status-badge"
-                              :class="'status-' + imgStatus({{ sid }})"
-                              x-text="imgStatus({{ sid }})"></span>
+                              :class="'status-' + (ss[{{ sid }}]?.img || 'pending')"
+                              x-text="ss[{{ sid }}]?.img || 'pending'"></span>
                     </div>
                     <div class="asset-preview aspect-16-9">
-                        <img x-show="imgSrc({{ sid }})"
-                             :src="imgSrc({{ sid }})"
+                        <img x-show="ss[{{ sid }}]?.imgUrl"
+                             :src="ss[{{ sid }}]?.imgUrl"
                              alt="Shot {{ shot.number }}" loading="lazy"
                              style="width:100%;height:100%;object-fit:cover">
-                        <div x-show="!imgSrc({{ sid }})" class="placeholder">
-                            <span x-show="imgStatus({{ sid }}) === 'generating'"
+                        <div x-show="!ss[{{ sid }}]?.imgUrl" class="placeholder">
+                            <span x-show="ss[{{ sid }}]?.img === 'generating'"
                                   class="generating-indicator">Generating...</span>
-                            <span x-show="imgStatus({{ sid }}) === 'failed'"
+                            <span x-show="ss[{{ sid }}]?.img === 'failed'"
                                   class="failed-indicator">Generation failed</span>
-                            <span x-show="imgStatus({{ sid }}) !== 'generating' && imgStatus({{ sid }}) !== 'failed'">
+                            <span x-show="ss[{{ sid }}]?.img !== 'generating' && ss[{{ sid }}]?.img !== 'failed'">
                                 No image
                             </span>
                         </div>
                     </div>
                     <div class="asset-actions">
                         <button class="btn btn-xs btn-primary"
-                                x-show="imgStatus({{ sid }}) === 'pending'"
+                                x-show="ss[{{ sid }}]?.img === 'pending'"
                                 @click.stop="action('/api/generate/shot/{{ sid }}/image')">
                             Gen Image
                         </button>
                         <span class="generating-indicator"
-                              x-show="imgStatus({{ sid }}) === 'generating'">Generating...</span>
-                        <div class="action-group" x-show="imgStatus({{ sid }}) === 'review'">
+                              x-show="ss[{{ sid }}]?.img === 'generating'">Generating...</span>
+                        <div class="action-group" x-show="ss[{{ sid }}]?.img === 'review'">
                             <button class="btn btn-xs btn-success"
                                     @click.stop="action('/api/generate/shot/{{ sid }}/approve-image')">
                                 Approve
@@ -174,8 +174,8 @@
                             </button>
                         </div>
                         <span class="approved-indicator"
-                              x-show="imgStatus({{ sid }}) === 'approved'">&#10003; Approved</span>
-                        <div class="action-group" x-show="imgStatus({{ sid }}) === 'failed'">
+                              x-show="ss[{{ sid }}]?.img === 'approved'">&#10003; Approved</span>
+                        <div class="action-group" x-show="ss[{{ sid }}]?.img === 'failed'">
                             <span class="failed-indicator">Failed</span>
                             <button class="btn btn-xs btn-primary"
                                     @click.stop="action('/api/generate/shot/{{ sid }}/image')">
@@ -199,42 +199,42 @@
                 {# ── VIDEO BOX ──────────────────────────────────── #}
                 <div class="asset-box video-box"
                      :class="[
-                         'asset-' + vidStatus({{ sid }}),
-                         vidStatus({{ sid }}) === 'locked' && 'asset-locked'
+                         'asset-' + (ss[{{ sid }}]?.vid || 'locked'),
+                         (ss[{{ sid }}]?.vid || 'locked') === 'locked' && 'asset-locked'
                      ]">
                     <div class="asset-label">
                         <span class="asset-type-label">VIDEO</span>
                         <span class="status-badge"
-                              :class="'status-' + vidStatus({{ sid }})"
-                              x-text="vidStatus({{ sid }}) === 'locked' ? 'awaiting image' : vidStatus({{ sid }})"></span>
+                              :class="'status-' + (ss[{{ sid }}]?.vid || 'locked')"
+                              x-text="(ss[{{ sid }}]?.vid || 'locked') === 'locked' ? 'awaiting image' : (ss[{{ sid }}]?.vid || 'locked')"></span>
                     </div>
                     <div class="asset-preview aspect-16-9">
-                        <video x-show="vidSrc({{ sid }})"
-                               :src="vidSrc({{ sid }})"
+                        <video x-show="ss[{{ sid }}]?.vidUrl"
+                               :src="ss[{{ sid }}]?.vidUrl"
                                controls
                                style="width:100%;height:100%;object-fit:cover"></video>
-                        <div x-show="!vidSrc({{ sid }})" class="placeholder">
-                            <span x-show="vidStatus({{ sid }}) === 'locked'">Approve image first</span>
-                            <span x-show="vidStatus({{ sid }}) === 'generating'"
+                        <div x-show="!ss[{{ sid }}]?.vidUrl" class="placeholder">
+                            <span x-show="(ss[{{ sid }}]?.vid || 'locked') === 'locked'">Approve image first</span>
+                            <span x-show="ss[{{ sid }}]?.vid === 'generating'"
                                   class="generating-indicator">Generating...</span>
-                            <span x-show="vidStatus({{ sid }}) === 'failed'"
+                            <span x-show="ss[{{ sid }}]?.vid === 'failed'"
                                   class="failed-indicator">Generation failed</span>
-                            <span x-show="vidStatus({{ sid }}) !== 'locked' && vidStatus({{ sid }}) !== 'generating' && vidStatus({{ sid }}) !== 'failed'">
+                            <span x-show="ss[{{ sid }}]?.vid !== 'locked' && ss[{{ sid }}]?.vid !== 'generating' && ss[{{ sid }}]?.vid !== 'failed' && ss[{{ sid }}]?.vid !== undefined">
                                 No video
                             </span>
                         </div>
                     </div>
                     <div class="asset-actions">
                         <span class="locked-indicator"
-                              x-show="vidStatus({{ sid }}) === 'locked'">&#128274; Locked</span>
+                              x-show="(ss[{{ sid }}]?.vid || 'locked') === 'locked'">&#128274; Locked</span>
                         <button class="btn btn-xs btn-primary"
-                                x-show="vidStatus({{ sid }}) === 'pending'"
+                                x-show="ss[{{ sid }}]?.vid === 'pending'"
                                 @click.stop="action('/api/generate/shot/{{ sid }}/video')">
                             Gen Clip
                         </button>
                         <span class="generating-indicator"
-                              x-show="vidStatus({{ sid }}) === 'generating'">Generating...</span>
-                        <div class="action-group" x-show="vidStatus({{ sid }}) === 'review'">
+                              x-show="ss[{{ sid }}]?.vid === 'generating'">Generating...</span>
+                        <div class="action-group" x-show="ss[{{ sid }}]?.vid === 'review'">
                             <button class="btn btn-xs btn-success"
                                     @click.stop="action('/api/generate/shot/{{ sid }}/approve-video')">
                                 Approve
@@ -245,8 +245,8 @@
                             </button>
                         </div>
                         <span class="approved-indicator"
-                              x-show="vidStatus({{ sid }}) === 'approved'">&#10003; Approved</span>
-                        <div class="action-group" x-show="vidStatus({{ sid }}) === 'failed'">
+                              x-show="ss[{{ sid }}]?.vid === 'approved'">&#10003; Approved</span>
+                        <div class="action-group" x-show="ss[{{ sid }}]?.vid === 'failed'">
                             <span class="failed-indicator">Failed</span>
                             <button class="btn btn-xs btn-primary"
                                     @click.stop="action('/api/generate/shot/{{ sid }}/video')">
@@ -255,7 +255,7 @@
                         </div>
 
                         <div class="action-spacer"></div>
-                        <div class="action-right" x-show="vidStatus({{ sid }}) !== 'locked'">
+                        <div class="action-right" x-show="(ss[{{ sid }}]?.vid || 'locked') !== 'locked'">
                             <button class="btn btn-xs btn-ghost"
                                     @click.stop="openPopup('/popup/import/shot/{{ sid }}?mode=video', 'Import')">
                                 Import
@@ -282,7 +282,7 @@
                 {% endif %}
 
                 {# ── Expandable Details ───────────────────────── #}
-                <div class="shot-details" x-show="isExpanded({{ sid }})" x-collapse>
+                <div class="shot-details" x-show="expanded[{{ sid }}]" x-collapse>
                     {% if shot.dialogue %}
                     <div class="detail-block"><h4>Dialogue</h4>
                         <p class="dialogue-text">{{ shot.dialogue }}</p></div>
@@ -320,81 +320,77 @@
 {% block scripts %}
 <script>
 function episodePage(episodeId) {
+    // Build initial ss (shot states) from server-rendered data
+    const initSS = {};
+    const raw = window.__shotStatuses || {};
+    for (const [id, d] of Object.entries(raw)) {
+        initSS[id] = {
+            img: d.image_status || 'pending',
+            vid: d.video_status || 'locked',
+            imgUrl: d.image_path ? _assetUrl(d.image_path) : null,
+            vidUrl: d.video_path ? _assetUrl(d.video_path) : null,
+            overall: '',
+        };
+    }
+
     return {
         episodeId,
-        status: { stats: null, shots: [], characters: [] },
-        shotInit: window.__shotStatuses || {},
+        // ss = flat reactive map: { shotId: { img, vid, imgUrl, vidUrl, overall } }
+        ss: initSS,
+        // st = stats counters
+        st: {{ (episode.stats or {}) | tojson }},
+        expanded: {},
         polling: null,
-        expandedShots: {},
 
         startPolling() {
-            this.fetchStatus();
-            this.polling = setInterval(() => this.fetchStatus(), 5000);
+            this.poll();
+            this.polling = setInterval(() => this.poll(), 5000);
         },
 
-        async fetchStatus() {
+        async poll() {
             try {
                 const r = await fetch('/api/status/episode/' + this.episodeId);
-                if (r.ok) this.status = await r.json();
-            } catch (e) { console.error('Poll failed:', e); }
+                if (!r.ok) return;
+                const data = await r.json();
+
+                // Rebuild ss from poll data — single reactive assignment
+                const next = {};
+                for (const s of (data.shots || [])) {
+                    next[s.id] = {
+                        img: s.image_status,
+                        vid: s.video_status,
+                        imgUrl: s.image_path ? _assetUrl(s.image_path) : null,
+                        vidUrl: s.video_path ? _assetUrl(s.video_path) : null,
+                        overall: s.status,
+                    };
+                }
+                this.ss = next;
+
+                // Update stats
+                if (data.stats) this.st = data.stats;
+
+                // Update character data for border classes
+                this._chars = data.characters || [];
+            } catch (e) {
+                console.error('Poll failed:', e);
+            }
         },
 
-        // ── Expand/collapse ──────────────────────────────────
-
-        toggleExpand(id) { this.expandedShots[id] = !this.expandedShots[id]; },
-        isExpanded(id) { return !!this.expandedShots[id]; },
-
-        // ── Data Accessors ───────────────────────────────────
-
-        _shot(id) {
-            return this.status.shots?.find(s => s.id === id) || null;
-        },
-
-        imgStatus(id) {
-            const s = this._shot(id);
-            if (s) return s.image_status;
-            return this.shotInit[id]?.image_status || 'pending';
-        },
-
-        vidStatus(id) {
-            const s = this._shot(id);
-            if (s) return s.video_status;
-            return this.shotInit[id]?.video_status || 'locked';
-        },
-
-        _assetUrl(path) {
-            if (!path) return null;
-            return '/assets/' + path.split('/').map(s => encodeURIComponent(s)).join('/');
-        },
-
-        imgSrc(id) {
-            const s = this._shot(id);
-            return this._assetUrl(s?.image_path || this.shotInit[id]?.image_path);
-        },
-
-        vidSrc(id) {
-            const s = this._shot(id);
-            return this._assetUrl(s?.video_path || this.shotInit[id]?.video_path);
-        },
-
-        shotBorderClass(id) {
-            const s = this._shot(id);
-            return s ? 'shot-' + s.status : '';
-        },
-
-        charStatus(id) {
-            const c = this.status.characters?.find(c => c.id === id);
+        // Characters
+        _chars: [],
+        charClass(id) {
+            const c = this._chars.find(c => c.id === id);
             return c ? 'char-' + c.status : '';
         },
 
-        // ── Actions ──────────────────────────────────────────
-
+        // Actions
         async action(url) {
             try {
                 const r = await fetch(url, { method: 'POST' });
                 const d = await r.json();
                 if (!r.ok) alert(d.detail || 'Action failed');
-                setTimeout(() => this.fetchStatus(), 500);
+                // Quick re-poll after action
+                setTimeout(() => this.poll(), 500);
             } catch (e) { alert('Request failed: ' + e.message); }
         },
 
@@ -404,7 +400,7 @@ function episodePage(episodeId) {
                 const d = await r.json();
                 if (r.ok) alert('Started ' + d.tasks_started + ' tasks');
                 else alert(d.detail || 'Batch failed');
-                setTimeout(() => this.fetchStatus(), 1000);
+                setTimeout(() => this.poll(), 1000);
             } catch (e) { alert('Request failed: ' + e.message); }
         },
 
@@ -419,6 +415,12 @@ function episodePage(episodeId) {
 
         destroy() { if (this.polling) clearInterval(this.polling); }
     };
+}
+
+// Encode path segments for URLs with special chars like #
+function _assetUrl(path) {
+    if (!path) return null;
+    return '/assets/' + path.split('/').map(s => encodeURIComponent(s)).join('/');
 }
 </script>
 {% endblock %}
