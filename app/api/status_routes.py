@@ -43,9 +43,10 @@ def _compute_asset_statuses(shot: Shot) -> tuple[str, str]:
         elif latest_img.status == AssetStatus.APPROVED:
             img_st = "approved"
         elif latest_img.status == AssetStatus.FAILED:
-            img_st = "failed"
+            # If the file exists on disk, treat as approved (old image still valid)
+            img_st = "approved" if shot.image_path else "failed"
         else:  # PENDING, REJECTED
-            img_st = "pending"
+            img_st = "approved" if shot.image_path else "pending"
     elif shot.image_path:
         img_st = "approved"
     else:
@@ -55,8 +56,8 @@ def _compute_asset_statuses(shot: Shot) -> tuple[str, str]:
     if not is_clip:
         return img_st, "n/a"
 
-    # Video is locked until the image is approved
-    if img_st != "approved":
+    # Video is locked until there is an image file on disk
+    if not shot.image_path:
         return img_st, "locked"
 
     latest_vid = shot.latest_video_gen

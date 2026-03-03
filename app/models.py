@@ -206,9 +206,7 @@ def _derive_asset_statuses(shot) -> tuple:
         return (status, "locked")
 
     if not has_vid:
-        if status == "review":
-            return ("review", "locked")
-        elif status == "generating":
+        if status == "generating":
             return ("approved", "generating")
         elif status == "failed":
             return ("approved", "failed")

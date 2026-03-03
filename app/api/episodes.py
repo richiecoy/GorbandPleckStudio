@@ -76,12 +76,22 @@ async def episode_detail(
             "video_path": shot.video_path,
         }
 
+    # Compute initial character statuses
+    char_statuses = {}
+    for char in episode.characters:
+        char_statuses[char.id] = {
+            "status": char.status.value,
+            "image_path": char.reference_image_path or "",
+            "is_main": char.is_main,
+        }
+
     return request.app.state.templates.TemplateResponse(
         "episode.html", {
             "request": request,
             "episode": episode,
             "segments": segments,
             "shot_statuses": shot_statuses,
+            "char_statuses": char_statuses,
             "AssetStatus": AssetStatus,
             "ShotType": ShotType,
         }

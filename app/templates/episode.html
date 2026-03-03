@@ -4,15 +4,7 @@
 {% block content %}
 <script>
 window.__shotStatuses = {{ shot_statuses | tojson }};
-window.__charStatuses = {
-    {% for char in episode.characters %}
-    {{ char.id }}: {
-        "status": "{{ char.status.value }}",
-        "image_path": {{ (char.reference_image_path or "") | tojson }},
-        "is_main": {{ "true" if char.is_main else "false" }}
-    }{{ "," if not loop.last }}
-    {% endfor %}
-};
+window.__charStatuses = {{ char_statuses | tojson }};
 </script>
 <div x-data="episodePage({{ episode.id }})" x-init="startPolling()">
 
@@ -357,6 +349,7 @@ function episodePage(episodeId) {
     // Build initial cs (character states) from server-rendered data
     const initCS = {};
     const rawChars = window.__charStatuses || {};
+    console.log('[STUDIO INIT] rawChars:', JSON.stringify(rawChars));
     for (const [id, d] of Object.entries(rawChars)) {
         initCS[id] = {
             status: d.status || 'pending',
@@ -364,6 +357,7 @@ function episodePage(episodeId) {
             is_main: d.is_main || false,
         };
     }
+    console.log('[STUDIO INIT] initCS:', JSON.stringify(initCS));
 
     return {
         episodeId,
