@@ -414,13 +414,16 @@ function episodePage(episodeId) {
                 if (data.stats) this.st = data.stats;
 
                 // Rebuild cs from poll data — character states
+                // Handles both old API (no image_path) and new API (with image_path)
                 const nextCS = {};
-                console.log('[STUDIO POLL] raw characters:', JSON.stringify(data.characters));
                 for (const c of (data.characters || [])) {
+                    const prev = this.cs[c.id];
                     nextCS[c.id] = {
                         status: c.status,
-                        imgUrl: c.image_path ? _assetUrl(c.image_path) : null,
-                        is_main: c.is_main || false,
+                        imgUrl: ('image_path' in c)
+                            ? (c.image_path ? _assetUrl(c.image_path) : null)
+                            : (prev?.imgUrl || null),
+                        is_main: ('is_main' in c) ? c.is_main : (prev?.is_main || false),
                     };
                 }
                 this.cs = nextCS;
