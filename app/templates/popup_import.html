@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Import &mdash; {{ title }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0ec;
+            margin: 0;
+            padding: 1.25rem;
+        }
+        h2 { font-size: 1rem; margin-bottom: 1rem; font-weight: 600; }
+        .tabs { display: flex; border-bottom: 1px solid #2a2a3a; margin-bottom: 1rem; gap: 0; }
+        .tab {
+            background: none; border: none; border-bottom: 2px solid transparent;
+            color: #8888a0; padding: 0.5rem 1rem; font-size: 0.85rem;
+            cursor: pointer; font-family: inherit; transition: all 0.15s;
+        }
+        .tab:hover { color: #e0e0ec; }
+        .tab.active { color: #6c5ce7; border-bottom-color: #6c5ce7; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .form-group { margin-bottom: 0.75rem; }
+        label { display: block; font-size: 0.8rem; color: #8888a0; margin-bottom: 0.3rem; font-weight: 500; }
+        input[type="text"], select, input[type="file"] {
+            width: 100%;
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            color: #e0e0ec;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+        input[type="text"]:focus, select:focus { outline: none; border-color: #6c5ce7; }
+        .btn {
+            background: #6c5ce7; color: white; border: none; border-radius: 6px;
+            padding: 0.5rem 1.25rem; font-size: 0.85rem; font-family: inherit;
+            cursor: pointer; font-weight: 500; margin-top: 0.5rem;
+        }
+        .btn:hover { background: #7c6cf7; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .status { margin-top: 0.75rem; font-size: 0.82rem; padding: 0.5rem; border-radius: 4px; }
+        .status-ok { background: rgba(46,204,113,0.12); color: #2ecc71; }
+        .status-err { background: rgba(231,76,60,0.12); color: #e74c3c; }
+        .status-wait { background: rgba(241,196,15,0.12); color: #f1c40f; }
+    </style>
+</head>
+<body>
+    <h2>Import &mdash; {{ title }}</h2>
+
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('taskid')">Kie.ai Task ID</button>
+        <button class="tab" onclick="switchTab('upload')">Upload File</button>
+    </div>
+
+    <!-- Task ID Panel -->
+    <div id="panel-taskid" class="panel active">
+        <div class="form-group">
+            <label>Task ID</label>
+            <input type="text" id="taskId" placeholder="Paste kie.ai task ID">
+        </div>
+        {% if target_type == 'shot' %}
+        <div class="form-group">
+            <label>Type</label>
+            <select id="importType">
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+            </select>
+        </div>
+        {% endif %}
+        <button class="btn" id="btnFetch" onclick="doImportTask()">Fetch from Kie.ai</button>
+        <div id="statusTask" class="status" style="display:none"></div>
+    </div>
+
+    <!-- Upload Panel -->
+    <div id="panel-upload" class="panel">
+        {% if target_type == 'shot' %}
+        <div class="form-group">
+            <label>File Type</label>
+            <select id="uploadType">
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+            </select>
+        </div>
+        {% endif %}
+        <div class="form-group">
+            <label>Choose File</label>
+            <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,video/mp4">
+        </div>
+        <button class="btn" onclick="doUpload()">Upload</button>
+        <div id="statusUpload" class="status" style="display:none"></div>
+    </div>
+
+    <script>
+    const TARGET_TYPE = '{{ target_type }}';
+    const TARGET_ID = {{ target_id }};
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('panel-' + tab).classList.add('active');
+    }
+
+    function showStatus(elId, msg, cls) {
+        const el = document.getElementById(elId);
+        el.textContent = msg;
+        el.className = 'status ' + cls;
+        el.style.display = 'block';
+    }
+
+    async function doImportTask() {
+        const taskId = document.getElementById('taskId').value.trim();
+        if (!taskId) { alert('Enter a task ID'); return; }
+
+        const importType = TARGET_TYPE === 'shot'
+            ? document.getElementById('importType').value
+            : 'image';
+
+        const url = TARGET_TYPE === 'character'
+            ? '/api/generate/character/' + TARGET_ID + '/import-task'
+            : '/api/generate/shot/' + TARGET_ID + '/import-task';
+
+        document.getElementById('btnFetch').disabled = true;
+        showStatus('statusTask', 'Fetching...', 'status-wait');
+
+        try {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: taskId, gen_type: importType })
+            });
+            const d = await r.json();
+            if (d.ok) {
+                showStatus('statusTask', 'OK: ' + d.status + (d.path ? ' → ' + d.path : ''), 'status-ok');
+                if (window.opener) window.opener.location.reload();
+            } else {
+                showStatus('statusTask', 'Failed: ' + (d.error || d.detail || 'unknown'), 'status-err');
+            }
+        } catch (e) {
+            showStatus('statusTask', 'Error: ' + e.message, 'status-err');
+        }
+        document.getElementById('btnFetch').disabled = false;
+    }
+
+    async function doUpload() {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput.files.length) { alert('Choose a file'); return; }
+
+        const form = new FormData();
+        form.append('file', fileInput.files[0]);
+        if (TARGET_TYPE === 'shot') {
+            const uploadType = document.getElementById('uploadType')?.value || 'image';
+            form.append('file_type', uploadType);
+        }
+
+        const url = TARGET_TYPE === 'character'
+            ? '/api/generate/character/' + TARGET_ID + '/upload-file'
+            : '/api/generate/shot/' + TARGET_ID + '/upload-file';
+
+        showStatus('statusUpload', 'Uploading...', 'status-wait');
+        try {
+            const r = await fetch(url, { method: 'POST', body: form });
+            const d = await r.json();
+            if (d.ok) {
+                showStatus('statusUpload', 'Uploaded: ' + d.path, 'status-ok');
+                if (window.opener) window.opener.location.reload();
+            } else {
+                showStatus('statusUpload', 'Failed: ' + (d.detail || 'unknown'), 'status-err');
+            }
+        } catch (e) {
+            showStatus('statusUpload', 'Error: ' + e.message, 'status-err');
+        }
+    }
+    </script>
+</body>
+</html>

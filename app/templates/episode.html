@@ -83,9 +83,9 @@
                     <span class="generating-indicator">Generating...</span>
                     {% endif %}
                     <button class="btn btn-xs btn-ghost"
-                            @click="openModal('import', {type:'character', id:{{ char.id }}, name:'{{ char.name }}'})">Import</button>
+                            @click="openPopup('/popup/import/character/{{ char.id }}', 'Import')">Import</button>
                     <button class="btn btn-xs btn-ghost"
-                            @click="openModal('preview', {type:'character', id:{{ char.id }}, name:'{{ char.name }}'})">Preview</button>
+                            @click="openPopup('/popup/preview/character/{{ char.id }}', 'Preview')">Preview</button>
                 </div>
             </div>
             {% endfor %}
@@ -166,10 +166,10 @@
                         {% endif %}
 
                         <button class="btn btn-xs btn-ghost"
-                                @click.stop="openModal('import', {type:'shot', id:{{ shot.id }}, name:'#{{ shot.number }} {{ shot.name }}'})"
+                                @click.stop="openPopup('/popup/import/shot/{{ shot.id }}', 'Import')"
                                 title="Import from kie.ai or upload file">Import</button>
                         <button class="btn btn-xs btn-ghost"
-                                @click.stop="openModal('preview', {type:'shot', id:{{ shot.id }}, name:'#{{ shot.number }} {{ shot.name }}'})"
+                                @click.stop="openPopup('/popup/preview/shot/{{ shot.id }}', 'Preview')"
                                 title="Preview kie.ai payload">Preview</button>
                     {% endif %}
                 </div>
@@ -211,84 +211,6 @@
     </section>
     {% endfor %}
 
-    <!-- ═══ IMPORT MODAL ═══ -->
-    <div class="modal-overlay" x-show="modal.show && modal.mode === 'import'" x-cloak
-         @click.self="closeModal()" @keydown.escape.window="closeModal()">
-        <div class="modal-dialog">
-            <div class="modal-header">
-                <h3>Import &mdash; <span x-text="modal.target?.name"></span></h3>
-                <button class="btn-close" @click="closeModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <!-- Tab selector -->
-                <div class="tab-row">
-                    <button class="tab-btn" :class="modal.tab === 'taskid' && 'tab-active'"
-                            @click="modal.tab = 'taskid'">Kie.ai Task ID</button>
-                    <button class="tab-btn" :class="modal.tab === 'upload' && 'tab-active'"
-                            @click="modal.tab = 'upload'">Upload File</button>
-                </div>
-
-                <!-- Task ID tab -->
-                <div x-show="modal.tab === 'taskid'" class="modal-section">
-                    <label>Task ID</label>
-                    <input type="text" x-model="modal.taskId" placeholder="Paste kie.ai task ID"
-                           class="form-input form-input-wide">
-                    <template x-if="modal.target?.type === 'shot'">
-                        <div>
-                            <label>Type</label>
-                            <select x-model="modal.importType" class="form-input">
-                                <option value="image">Image</option>
-                                <option value="video">Video</option>
-                            </select>
-                        </div>
-                    </template>
-                    <div class="modal-footer">
-                        <button class="btn btn-primary" :disabled="!modal.taskId"
-                                @click="doImportTask()">Fetch from Kie.ai</button>
-                    </div>
-                </div>
-
-                <!-- Upload tab -->
-                <div x-show="modal.tab === 'upload'" class="modal-section">
-                    <template x-if="modal.target?.type === 'shot'">
-                        <div>
-                            <label>File Type</label>
-                            <select x-model="modal.importType" class="form-input">
-                                <option value="image">Image</option>
-                                <option value="video">Video</option>
-                            </select>
-                        </div>
-                    </template>
-                    <label>Choose File</label>
-                    <input type="file" x-ref="fileInput" class="form-input"
-                           accept="image/png,image/jpeg,image/webp,video/mp4">
-                    <div class="modal-footer">
-                        <button class="btn btn-primary" @click="doUploadFile()">Upload</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ═══ PREVIEW MODAL ═══ -->
-    <div class="modal-overlay" x-show="modal.show && modal.mode === 'preview'" x-cloak
-         @click.self="closeModal()" @keydown.escape.window="closeModal()">
-        <div class="modal-dialog modal-wide">
-            <div class="modal-header">
-                <h3>API Preview &mdash; <span x-text="modal.target?.name"></span></h3>
-                <button class="btn-close" @click="closeModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <template x-if="modal.loading">
-                    <p class="loading-text">Loading...</p>
-                </template>
-                <template x-if="!modal.loading && modal.previewData">
-                    <pre class="payload-json" x-text="JSON.stringify(modal.previewData, null, 2)"></pre>
-                </template>
-            </div>
-        </div>
-    </div>
-
 </div>
 {% endblock %}
 
@@ -299,16 +221,6 @@ function episodePage(episodeId) {
         episodeId,
         status: { stats: null, shots: [], characters: [] },
         polling: null,
-        modal: {
-            show: false,
-            mode: '',          // 'import' or 'preview'
-            tab: 'taskid',     // 'taskid' or 'upload'
-            target: null,      // {type: 'shot'|'character', id, name}
-            taskId: '',
-            importType: 'image',
-            previewData: null,
-            loading: false,
-        },
 
         startPolling() {
             this.fetchStatus();
@@ -341,92 +253,13 @@ function episodePage(episodeId) {
             } catch (e) { alert('Request failed: ' + e.message); }
         },
 
-        openModal(mode, target) {
-            this.modal.show = true;
-            this.modal.mode = mode;
-            this.modal.target = target;
-            this.modal.tab = 'taskid';
-            this.modal.taskId = '';
-            this.modal.importType = 'image';
-            this.modal.previewData = null;
-            this.modal.loading = false;
-
-            if (mode === 'preview') {
-                this.loadPreview();
-            }
-        },
-
-        closeModal() {
-            this.modal.show = false;
-        },
-
-        async loadPreview() {
-            this.modal.loading = true;
-            const t = this.modal.target;
-            const url = t.type === 'character'
-                ? '/api/generate/character/' + t.id + '/preview'
-                : '/api/generate/shot/' + t.id + '/preview';
-            try {
-                const r = await fetch(url);
-                this.modal.previewData = await r.json();
-            } catch (e) {
-                this.modal.previewData = { error: e.message };
-            }
-            this.modal.loading = false;
-        },
-
-        async doImportTask() {
-            const t = this.modal.target;
-            const url = t.type === 'character'
-                ? '/api/generate/character/' + t.id + '/import-task'
-                : '/api/generate/shot/' + t.id + '/import-task';
-            try {
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        task_id: this.modal.taskId,
-                        gen_type: this.modal.importType
-                    })
-                });
-                const d = await r.json();
-                if (d.ok) {
-                    alert('Import ' + d.status + (d.path ? ': ' + d.path : ''));
-                    this.closeModal();
-                    location.reload();
-                } else {
-                    alert('Import failed: ' + (d.error || d.detail || 'unknown'));
-                }
-            } catch (e) { alert('Import error: ' + e.message); }
-        },
-
-        async doUploadFile() {
-            const t = this.modal.target;
-            const fileInput = this.$refs.fileInput;
-            if (!fileInput || !fileInput.files.length) {
-                alert('Choose a file first');
-                return;
-            }
-            const form = new FormData();
-            form.append('file', fileInput.files[0]);
-            if (t.type === 'shot') {
-                form.append('file_type', this.modal.importType);
-            }
-
-            const url = t.type === 'character'
-                ? '/api/generate/character/' + t.id + '/upload-file'
-                : '/api/generate/shot/' + t.id + '/upload-file';
-            try {
-                const r = await fetch(url, { method: 'POST', body: form });
-                const d = await r.json();
-                if (d.ok) {
-                    alert('Uploaded: ' + d.path);
-                    this.closeModal();
-                    location.reload();
-                } else {
-                    alert('Upload failed: ' + (d.detail || 'unknown'));
-                }
-            } catch (e) { alert('Upload error: ' + e.message); }
+        openPopup(url, title) {
+            const w = title === 'Preview' ? 700 : 480;
+            const h = title === 'Preview' ? 600 : 420;
+            const left = (screen.width - w) / 2;
+            const top = (screen.height - h) / 2;
+            window.open(url, '_blank',
+                `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
         },
 
         shotStatus(id) { const s = this.status.shots?.find(s => s.id === id); return s?.status; },

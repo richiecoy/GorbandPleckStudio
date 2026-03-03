@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.database import init_db, async_session
-from app.api import episodes, generation, callbacks
+from app.api import episodes, generation, callbacks, popups, asset_routes, status_routes
 from app.api import settings_routes
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.scanner import scan_episodes
@@ -46,11 +46,12 @@ async def lifespan(app: FastAPI):
             f"created={summary['created']}, parsed={summary['parsed']}"
         )
 
-    if settings.effective_kie_api_key:
+    api_key = settings.effective_kie_api_key
+    if api_key:
         start_scheduler()
-        logger.info("Background poller started")
+        logger.info(f"Background poller started (key: ...{api_key[-6:]})")
     else:
-        logger.warning("No KIE_API_KEY set - generation disabled")
+        logger.warning("No KIE_API_KEY set - poller disabled. Set key in Settings page and restart.")
 
     yield
 
@@ -69,7 +70,10 @@ static_dir = Path(__file__).parent / "static"
 template_dir = Path(__file__).parent / "templates"
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-app.mount("/assets", StaticFiles(directory=str(settings.asset_path)), name="assets")
+# NOTE: Asset serving is handled by a dynamic route in asset_routes.py
+# so it always uses the current settings.asset_path (which may change via Settings page).
+# app.mount("/assets", ...) was removed because it captured the path at import time,
+# before DB settings load.
 
 from urllib.parse import quote as urlquote
 
@@ -82,6 +86,9 @@ app.include_router(episodes.router)
 app.include_router(generation.router)
 app.include_router(callbacks.router)
 app.include_router(settings_routes.router)
+app.include_router(popups.router)
+app.include_router(asset_routes.router)
+app.include_router(status_routes.router)
 
 
 if __name__ == "__main__":
