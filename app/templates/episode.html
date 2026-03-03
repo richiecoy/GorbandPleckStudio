@@ -335,12 +335,15 @@ window.__charStatuses = {{ char_statuses | tojson }};
 {% block scripts %}
 <script>
 function episodePage(episodeId) {
+    const GEN_TYPES = ['still', 'veo3_clip', 'title_card'];
+
     // Build initial ss (shot states) from server-rendered data
     const initSS = {};
     const raw = window.__shotStatuses || {};
     for (const [id, d] of Object.entries(raw)) {
         let img = d.image_status || 'pending';
         let vid = d.video_status || 'locked';
+        const stype = d.shot_type || '';
         // If image file exists on disk, it's at least approved
         if (d.image_path && (img === 'pending' || img === 'failed')) img = 'approved';
         // If image exists and video is locked, unlock it
@@ -348,7 +351,7 @@ function episodePage(episodeId) {
         // If video file exists, it's at least approved
         if (d.video_path && (vid === 'pending' || vid === 'failed')) vid = 'approved';
         initSS[id] = {
-            img, vid,
+            img, vid, stype,
             imgUrl: d.image_path ? _assetUrl(d.image_path) : null,
             vidUrl: d.video_path ? _assetUrl(d.video_path) : null,
             overall: '',
@@ -367,12 +370,12 @@ function episodePage(episodeId) {
     }
     return {
         episodeId,
-        // ss = flat reactive map: { shotId: { img, vid, imgUrl, vidUrl, overall } }
+        // ss = flat reactive map: { shotId: { img, vid, stype, imgUrl, vidUrl, overall } }
         ss: initSS,
         // cs = flat reactive map: { charId: { status, imgUrl, is_main } }
         cs: initCS,
-        // st = stats counters
-        st: {{ (episode.stats or {}) | tojson }},
+        // st = stats counters (computed from ss + cs)
+        st: _computeStats(initSS, initCS, GEN_TYPES),
         expanded: {},
         polling: null,
 
@@ -397,6 +400,7 @@ function episodePage(episodeId) {
                 for (const s of (data.shots || [])) {
                     let img = s.image_status || 'pending';
                     let vid = s.video_status || 'locked';
+                    const stype = s.shot_type || (this.ss[s.id]?.stype || '');
                     // If image file exists on disk, it's at least approved
                     if (s.image_path && (img === 'pending' || img === 'failed')) img = 'approved';
                     // If image exists and video is locked, unlock it
@@ -404,16 +408,13 @@ function episodePage(episodeId) {
                     // If video file exists, it's at least approved
                     if (s.video_path && (vid === 'pending' || vid === 'failed')) vid = 'approved';
                     next[s.id] = {
-                        img, vid,
+                        img, vid, stype,
                         imgUrl: s.image_path ? _assetUrl(s.image_path) : null,
                         vidUrl: s.video_path ? _assetUrl(s.video_path) : null,
                         overall: s.status,
                     };
                 }
                 this.ss = next;
-
-                // Update stats
-                if (data.stats) this.st = data.stats;
 
                 // Rebuild cs from poll data — character states
                 // Handles both old API (no image_path) and new API (with image_path)
@@ -429,6 +430,9 @@ function episodePage(episodeId) {
                     };
                 }
                 this.cs = nextCS;
+
+                // Recompute stats from frontend state (includes characters + file-existence overrides)
+                this.st = _computeStats(next, nextCS, GEN_TYPES);
 
                 // If generation just completed, reload to pick up fresh server-rendered data
                 if (wasGenerating) {
@@ -505,6 +509,29 @@ function episodePage(episodeId) {
 function _assetUrl(path) {
     if (!path) return null;
     return '/assets/' + path.replace(/\\/g, '/').split('/').map(s => encodeURIComponent(s)).join('/');
+}
+
+// Compute stats from frontend state (includes characters + file-existence overrides)
+function _computeStats(ss, cs, genTypes) {
+    const st = { total: 0, pending: 0, generating: 0, review: 0, approved: 0 };
+    for (const s of Object.values(ss)) {
+        if (!genTypes.includes(s.stype)) continue;
+        // Count image asset
+        st.total++;
+        if (st[s.img] !== undefined) st[s.img]++;
+        // Count video asset for clips
+        if (s.vid && s.vid !== 'n/a') {
+            st.total++;
+            const b = s.vid === 'locked' ? 'pending' : s.vid;
+            if (st[b] !== undefined) st[b]++;
+        }
+    }
+    // Count character assets
+    for (const c of Object.values(cs)) {
+        st.total++;
+        if (st[c.status] !== undefined) st[c.status]++;
+    }
+    return st;
 }
 </script>
 {% endblock %}

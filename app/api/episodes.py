@@ -74,6 +74,7 @@ async def episode_detail(
             "video_status": vid_st,
             "image_path": shot.image_path,
             "video_path": shot.video_path,
+            "shot_type": shot.shot_type.value,
         }
 
     # Compute initial character statuses
