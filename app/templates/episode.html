@@ -65,7 +65,7 @@ window.__charStatuses = {{ char_statuses | tojson }};
         <div class="character-grid">
             {% for char in episode.characters %}
             {% set cid = char.id %}
-            <div class="char-card" :class="'char-' + (cs[{{ cid }}]?.status || '')"
+            <div class="char-card" :class="'char-' + (cs[{{ cid }}]?.status || '')">
                 <div class="char-preview">
                     <img x-show="cs[{{ cid }}]?.imgUrl"
                          :src="cs[{{ cid }}]?.imgUrl"
