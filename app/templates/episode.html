@@ -66,7 +66,6 @@ window.__charStatuses = {{ char_statuses | tojson }};
             {% for char in episode.characters %}
             {% set cid = char.id %}
             <div class="char-card" :class="'char-' + (cs[{{ cid }}]?.status || '')"
-                 x-effect="console.log('[CHAR {{ cid }}] imgUrl=', cs[{{ cid }}]?.imgUrl, 'status=', cs[{{ cid }}]?.status)">
                 <div class="char-preview">
                     <img x-show="cs[{{ cid }}]?.imgUrl"
                          :src="cs[{{ cid }}]?.imgUrl"
@@ -340,9 +339,16 @@ function episodePage(episodeId) {
     const initSS = {};
     const raw = window.__shotStatuses || {};
     for (const [id, d] of Object.entries(raw)) {
+        let img = d.image_status || 'pending';
+        let vid = d.video_status || 'locked';
+        // If image file exists on disk, it's at least approved
+        if (d.image_path && (img === 'pending' || img === 'failed')) img = 'approved';
+        // If image exists and video is locked, unlock it
+        if (d.image_path && vid === 'locked') vid = 'pending';
+        // If video file exists, it's at least approved
+        if (d.video_path && (vid === 'pending' || vid === 'failed')) vid = 'approved';
         initSS[id] = {
-            img: d.image_status || 'pending',
-            vid: d.video_status || 'locked',
+            img, vid,
             imgUrl: d.image_path ? _assetUrl(d.image_path) : null,
             vidUrl: d.video_path ? _assetUrl(d.video_path) : null,
             overall: '',
@@ -352,7 +358,6 @@ function episodePage(episodeId) {
     // Build initial cs (character states) from server-rendered data
     const initCS = {};
     const rawChars = window.__charStatuses || {};
-    console.log('[STUDIO INIT] rawChars:', JSON.stringify(rawChars));
     for (const [id, d] of Object.entries(rawChars)) {
         initCS[id] = {
             status: d.status || 'pending',
@@ -360,8 +365,6 @@ function episodePage(episodeId) {
             is_main: d.is_main || false,
         };
     }
-    console.log('[STUDIO INIT] initCS:', JSON.stringify(initCS));
-
     return {
         episodeId,
         // ss = flat reactive map: { shotId: { img, vid, imgUrl, vidUrl, overall } }
@@ -381,28 +384,22 @@ function episodePage(episodeId) {
         async poll() {
             try {
                 const r = await fetch('/api/status/episode/' + this.episodeId);
-                if (!r.ok) {
-                    console.error('[STUDIO POLL] HTTP error:', r.status, await r.text().catch(() => ''));
-                    return;
-                }
+                if (!r.ok) return;
                 const data = await r.json();
-
-                // Debug: log summary of poll results
-                const genShots = (data.shots || []).filter(s =>
-                    s.status !== 'pending' && s.status !== 'approved'
-                );
-                if (genShots.length > 0) {
-                    console.log('[STUDIO POLL] Active shots:', genShots.map(s =>
-                        `#${s.id}(status=${s.status}, img=${s.image_status}, vid=${s.video_status}, path=${s.image_path})`
-                    ));
-                }
 
                 // Rebuild ss from poll data — single reactive assignment
                 const next = {};
                 for (const s of (data.shots || [])) {
+                    let img = s.image_status || 'pending';
+                    let vid = s.video_status || 'locked';
+                    // If image file exists on disk, it's at least approved
+                    if (s.image_path && (img === 'pending' || img === 'failed')) img = 'approved';
+                    // If image exists and video is locked, unlock it
+                    if (s.image_path && vid === 'locked') vid = 'pending';
+                    // If video file exists, it's at least approved
+                    if (s.video_path && (vid === 'pending' || vid === 'failed')) vid = 'approved';
                     next[s.id] = {
-                        img: s.image_status,
-                        vid: s.video_status,
+                        img, vid,
                         imgUrl: s.image_path ? _assetUrl(s.image_path) : null,
                         vidUrl: s.video_path ? _assetUrl(s.video_path) : null,
                         overall: s.status,
@@ -434,7 +431,6 @@ function episodePage(episodeId) {
 
         // Actions
         async action(url) {
-            console.log('[STUDIO ACTION]', url);
 
             // Optimistic UI: immediately show "generating" state for shots
             const genMatch = url.match(/\/shot\/(\d+)\/(image|video)$/);
@@ -458,12 +454,10 @@ function episodePage(episodeId) {
             try {
                 const r = await fetch(url, { method: 'POST' });
                 const d = await r.json();
-                console.log('[STUDIO ACTION] response:', r.status, d);
                 if (!r.ok) alert(d.detail || 'Action failed');
                 // Quick re-poll after action
                 setTimeout(() => this.poll(), 500);
             } catch (e) {
-                console.error('[STUDIO ACTION] error:', e);
                 alert('Request failed: ' + e.message);
             }
         },
