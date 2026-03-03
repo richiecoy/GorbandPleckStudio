@@ -2,7 +2,18 @@
 {% block title %}EP{{ '%02d' % episode.number }}: {{ episode.title }}{% endblock %}
 
 {% block content %}
-<script>window.__shotStatuses = {{ shot_statuses | tojson }};</script>
+<script>
+window.__shotStatuses = {{ shot_statuses | tojson }};
+window.__charStatuses = {
+    {% for char in episode.characters %}
+    {{ char.id }}: {
+        "status": "{{ char.status.value }}",
+        "image_path": {{ (char.reference_image_path or "") | tojson }},
+        "is_main": {{ "true" if char.is_main else "false" }}
+    }{{ "," if not loop.last }}
+    {% endfor %}
+};
+</script>
 <div x-data="episodePage({{ episode.id }})" x-init="startPolling()">
 
     <div class="page-header">
@@ -59,35 +70,44 @@
         </div>
         <div class="character-grid">
             {% for char in episode.characters %}
-            <div class="char-card" :class="charClass({{ char.id }})">
+            {% set cid = char.id %}
+            <div class="char-card" :class="'char-' + (cs[{{ cid }}]?.status || '')">
                 <div class="char-preview">
-                    {% if char.reference_image_path %}
-                    <img src="/assets/{{ char.reference_image_path|urlencode_path }}"
+                    <img x-show="cs[{{ cid }}]?.imgUrl"
+                         :src="cs[{{ cid }}]?.imgUrl"
                          alt="{{ char.name }}" loading="lazy">
-                    {% else %}
-                    <div class="placeholder">No image</div>
-                    {% endif %}
+                    <div x-show="!cs[{{ cid }}]?.imgUrl" class="placeholder">
+                        <span x-show="cs[{{ cid }}]?.status === 'generating'"
+                              class="generating-indicator">Generating...</span>
+                        <span x-show="cs[{{ cid }}]?.status !== 'generating'">No image</span>
+                    </div>
                 </div>
                 <div class="char-info">
                     <h3>{{ char.name }}{% if char.is_main %} <span class="badge badge-main">Main</span>{% endif %}</h3>
-                    <span class="status-badge status-{{ char.status.value }}">{{ char.status.value }}</span>
+                    <span class="status-badge"
+                          :class="'status-' + (cs[{{ cid }}]?.status || 'pending')"
+                          x-text="cs[{{ cid }}]?.status || 'pending'"></span>
                 </div>
                 <div class="char-actions">
-                    {% if char.status.value == 'pending' and not char.is_main %}
+                    {% if not char.is_main %}
                     <button class="btn btn-xs btn-primary"
-                            @click="action('/api/generate/character/{{ char.id }}')">Generate</button>
-                    {% elif char.status.value == 'review' %}
-                    <button class="btn btn-xs btn-success"
-                            @click="action('/api/generate/character/{{ char.id }}/approve')">Approve</button>
-                    <button class="btn btn-xs btn-danger"
-                            @click="action('/api/generate/character/{{ char.id }}/reject')">Redo</button>
-                    {% elif char.status.value == 'generating' %}
-                    <span class="generating-indicator">Generating...</span>
+                            x-show="cs[{{ cid }}]?.status === 'pending'"
+                            @click="action('/api/generate/character/{{ cid }}')">Generate</button>
                     {% endif %}
+                    <span class="generating-indicator"
+                          x-show="cs[{{ cid }}]?.status === 'generating'">Generating...</span>
+                    <div class="action-group" x-show="cs[{{ cid }}]?.status === 'review'">
+                        <button class="btn btn-xs btn-success"
+                                @click="action('/api/generate/character/{{ cid }}/approve')">Approve</button>
+                        <button class="btn btn-xs btn-danger"
+                                @click="action('/api/generate/character/{{ cid }}/reject')">Redo</button>
+                    </div>
+                    <span class="approved-indicator"
+                          x-show="cs[{{ cid }}]?.status === 'approved'">&#10003; Approved</span>
                     <button class="btn btn-xs btn-ghost"
-                            @click="openPopup('/popup/import/character/{{ char.id }}', 'Import')">Import</button>
+                            @click="openPopup('/popup/import/character/{{ cid }}', 'Import')">Import</button>
                     <button class="btn btn-xs btn-ghost"
-                            @click="openPopup('/popup/preview/character/{{ char.id }}', 'Preview')">Preview</button>
+                            @click="openPopup('/popup/preview/character/{{ cid }}', 'Preview')">Preview</button>
                 </div>
             </div>
             {% endfor %}
@@ -333,10 +353,23 @@ function episodePage(episodeId) {
         };
     }
 
+    // Build initial cs (character states) from server-rendered data
+    const initCS = {};
+    const rawChars = window.__charStatuses || {};
+    for (const [id, d] of Object.entries(rawChars)) {
+        initCS[id] = {
+            status: d.status || 'pending',
+            imgUrl: d.image_path ? _assetUrl(d.image_path) : null,
+            is_main: d.is_main || false,
+        };
+    }
+
     return {
         episodeId,
         // ss = flat reactive map: { shotId: { img, vid, imgUrl, vidUrl, overall } }
         ss: initSS,
+        // cs = flat reactive map: { charId: { status, imgUrl, is_main } }
+        cs: initCS,
         // st = stats counters
         st: {{ (episode.stats or {}) | tojson }},
         expanded: {},
@@ -382,34 +415,41 @@ function episodePage(episodeId) {
                 // Update stats
                 if (data.stats) this.st = data.stats;
 
-                // Update character data for border classes
-                this._chars = data.characters || [];
+                // Rebuild cs from poll data — character states
+                const nextCS = {};
+                for (const c of (data.characters || [])) {
+                    nextCS[c.id] = {
+                        status: c.status,
+                        imgUrl: c.image_path ? _assetUrl(c.image_path) : null,
+                        is_main: c.is_main || false,
+                    };
+                }
+                this.cs = nextCS;
             } catch (e) {
                 console.error('Poll failed:', e);
             }
-        },
-
-        // Characters
-        _chars: [],
-        charClass(id) {
-            const c = this._chars.find(c => c.id === id);
-            return c ? 'char-' + c.status : '';
         },
 
         // Actions
         async action(url) {
             console.log('[STUDIO ACTION]', url);
 
-            // Optimistic UI: immediately show "generating" state
+            // Optimistic UI: immediately show "generating" state for shots
             const genMatch = url.match(/\/shot\/(\d+)\/(image|video)$/);
             if (genMatch) {
                 const sid = parseInt(genMatch[1]);
                 const field = genMatch[2] === 'video' ? 'vid' : 'img';
-                console.log('[STUDIO ACTION] optimistic update: shot', sid, field, '→ generating');
                 if (this.ss[sid]) {
                     this.ss[sid] = { ...this.ss[sid], [field]: 'generating' };
-                } else {
-                    console.warn('[STUDIO ACTION] shot', sid, 'not found in ss! Keys:', Object.keys(this.ss).slice(0, 10));
+                }
+            }
+
+            // Optimistic UI: immediately show "generating" state for characters
+            const charGenMatch = url.match(/\/character\/(\d+)$/);
+            if (charGenMatch) {
+                const cid = parseInt(charGenMatch[1]);
+                if (this.cs[cid]) {
+                    this.cs[cid] = { ...this.cs[cid], status: 'generating' };
                 }
             }
 

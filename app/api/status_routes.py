@@ -123,7 +123,13 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
         })
 
     characters = [
-        {"id": c.id, "status": c.status.value, "has_image": bool(c.reference_image_path)}
+        {
+            "id": c.id,
+            "status": c.status.value,
+            "has_image": bool(c.reference_image_path),
+            "image_path": c.reference_image_path,
+            "is_main": c.is_main,
+        }
         for c in episode.characters
     ]
 
