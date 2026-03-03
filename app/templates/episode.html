@@ -526,10 +526,13 @@ function _computeStats(ss, cs, genTypes) {
             if (st[b] !== undefined) st[b]++;
         }
     }
-    // Count character assets
+    // Count non-main character assets (main chars have manually uploaded refs)
     for (const c of Object.values(cs)) {
+        if (c.is_main) continue;
+        // If character has an image, treat as approved regardless of backend status
+        const status = c.imgUrl ? 'approved' : c.status;
         st.total++;
-        if (st[c.status] !== undefined) st[c.status]++;
+        if (st[status] !== undefined) st[status]++;
     }
     return st;
 }
