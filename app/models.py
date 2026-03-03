@@ -65,13 +65,28 @@ class Episode(Base):
 
     @property
     def stats(self):
-        total = len(self.shots)
-        approved = sum(1 for s in self.shots if s.status == AssetStatus.APPROVED)
-        generating = sum(1 for s in self.shots if s.status == AssetStatus.GENERATING)
-        review = sum(1 for s in self.shots if s.status == AssetStatus.REVIEW)
+        """Count individual assets: each generatable shot = 1 image,
+        each veo3_clip = +1 video asset."""
+        counts = {"pending": 0, "generating": 0, "review": 0, "approved": 0, "failed": 0}
+        total = 0
+        for s in self.shots:
+            if s.shot_type not in (ShotType.STILL, ShotType.VEO3_CLIP, ShotType.TITLE_CARD):
+                continue
+            img_st, vid_st = _derive_asset_statuses(s)
+            # Count image asset
+            total += 1
+            counts[img_st] = counts.get(img_st, 0) + 1
+            # Count video asset for clips
+            if s.shot_type == ShotType.VEO3_CLIP:
+                total += 1
+                bucket = "pending" if vid_st == "locked" else vid_st
+                counts[bucket] = counts.get(bucket, 0) + 1
         return {
-            "total": total, "approved": approved, "generating": generating,
-            "review": review, "pending": total - approved - generating - review
+            "total": total,
+            "pending": counts.get("pending", 0),
+            "generating": counts.get("generating", 0),
+            "review": counts.get("review", 0),
+            "approved": counts.get("approved", 0),
         }
 
 
@@ -174,3 +189,37 @@ class Generation(Base):
 
     shot = relationship("Shot", back_populates="generations")
     character = relationship("Character", back_populates="generations")
+
+
+def _derive_asset_statuses(shot) -> tuple:
+    """Derive (image_status, video_status) from a shot's state.
+    Used by Episode.stats and status_routes."""
+    status = shot.status.value
+    has_img = bool(shot.image_path)
+    has_vid = bool(shot.video_path)
+    is_clip = shot.shot_type == ShotType.VEO3_CLIP
+
+    if not is_clip:
+        return (status, "n/a")
+
+    if not has_img:
+        return (status, "locked")
+
+    if not has_vid:
+        if status == "review":
+            return ("review", "locked")
+        elif status == "generating":
+            return ("approved", "generating")
+        elif status == "failed":
+            return ("approved", "failed")
+        else:
+            return ("approved", "pending")
+    else:
+        if status == "review":
+            return ("approved", "review")
+        elif status == "approved":
+            return ("approved", "approved")
+        elif status == "failed":
+            return ("approved", "failed")
+        else:
+            return ("approved", status)

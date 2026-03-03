@@ -344,7 +344,8 @@ function episodePage(episodeId, initialStatuses) {
     return {
         episodeId,
         status: { stats: null, shots: [], characters: [] },
-        init: initialStatuses,  // {shotId: {image_status, video_status, image_path, video_path}}
+        // NOTE: Do NOT name this "init" — that's a reserved Alpine lifecycle hook
+        shotInit: initialStatuses,
         polling: null,
 
         startPolling() {
@@ -361,42 +362,36 @@ function episodePage(episodeId, initialStatuses) {
 
         // ── Data Accessors ───────────────────────────────────
 
-        // Full shot data from polling (or null if not yet polled)
-        shotData(id) {
+        _shot(id) {
             return this.status.shots?.find(s => s.id === id) || null;
         },
 
-        // Image status: polled > initial > pending
         imgStatus(id) {
-            const s = this.shotData(id);
+            const s = this._shot(id);
             if (s) return s.image_status;
-            return this.init[id]?.image_status || 'pending';
+            return this.shotInit[id]?.image_status || 'pending';
         },
 
-        // Video status: polled > initial > locked
         vidStatus(id) {
-            const s = this.shotData(id);
+            const s = this._shot(id);
             if (s) return s.video_status;
-            return this.init[id]?.video_status || 'locked';
+            return this.shotInit[id]?.video_status || 'locked';
         },
 
-        // Image src URL: polled path > initial path > null
         imgSrc(id) {
-            const s = this.shotData(id);
-            const path = s?.image_path || this.init[id]?.image_path;
-            return path ? '/assets/' + path : null;
+            const s = this._shot(id);
+            const path = s?.image_path || this.shotInit[id]?.image_path;
+            return path ? '/assets/' + encodeURI(path) : null;
         },
 
-        // Video src URL: polled path > initial path > null
         vidSrc(id) {
-            const s = this.shotData(id);
-            const path = s?.video_path || this.init[id]?.video_path;
-            return path ? '/assets/' + path : null;
+            const s = this._shot(id);
+            const path = s?.video_path || this.shotInit[id]?.video_path;
+            return path ? '/assets/' + encodeURI(path) : null;
         },
 
-        // Overall shot border color
         shotBorderClass(id) {
-            const s = this.shotData(id);
+            const s = this._shot(id);
             return s ? 'shot-' + s.status : '';
         },
 

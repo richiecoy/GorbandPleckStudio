@@ -18,7 +18,7 @@ router = APIRouter(prefix="/popup")
 async def preview_shot_popup(
     request: Request,
     shot_id: int,
-    mode: str = Query("image", regex="^(image|video)$"),
+    mode: str = Query("image", pattern="^(image|video)$"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -85,7 +85,7 @@ async def preview_character_popup(request: Request, character_id: int, db: Async
 async def import_shot_popup(
     request: Request,
     shot_id: int,
-    mode: str = Query("image", regex="^(image|video)$"),
+    mode: str = Query("image", pattern="^(image|video)$"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Shot).where(Shot.id == shot_id))

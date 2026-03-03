@@ -65,10 +65,10 @@ async def episode_detail(
         segments[seg].append(shot)
 
     # Compute initial image/video statuses and paths for each shot
-    from app.api.status_routes import _derive_statuses
+    from app.models import _derive_asset_statuses
     shot_statuses = {}
     for shot in episode.shots:
-        img_st, vid_st = _derive_statuses(shot)
+        img_st, vid_st = _derive_asset_statuses(shot)
         shot_statuses[shot.id] = {
             "image_status": img_st,
             "video_status": vid_st,
