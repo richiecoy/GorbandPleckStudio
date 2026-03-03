@@ -246,7 +246,7 @@ async def _link_existing_assets(episode_id: int, db: AsyncSession):
             fname_lower = f.stem.lower()
             for name, char in char_map.items():
                 if name in fname_lower and not char.reference_image_path:
-                    rel_path = str(f.relative_to(settings.asset_path))
+                    rel_path = str(f.relative_to(settings.asset_path)).replace('\\', '/')
                     # Direct SQL update to be certain
                     await db.execute(
                         update(Character)
@@ -279,7 +279,7 @@ async def _link_existing_assets(episode_id: int, db: AsyncSession):
         if not shot:
             continue
 
-        rel_path = str(f.relative_to(settings.asset_path))
+        rel_path = str(f.relative_to(settings.asset_path)).replace('\\', '/')
         ext = f.suffix.lower()
 
         if ext in (".png", ".jpg", ".jpeg", ".webp") and not shot.image_path:
@@ -325,7 +325,7 @@ async def _link_existing_assets(episode_id: int, db: AsyncSession):
                 if f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
                     continue
                 if f.stem.lower() == char.name.lower():
-                    rel_path = str(f.relative_to(settings.asset_path))
+                    rel_path = str(f.relative_to(settings.asset_path)).replace('\\', '/')
                     await db.execute(
                         update(Character)
                         .where(Character.id == char.id)

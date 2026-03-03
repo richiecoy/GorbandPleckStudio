@@ -64,7 +64,7 @@ async def poll_pending_generations():
 
                     if downloaded:
                         from pathlib import Path
-                        rel_path = str(Path(save_path).relative_to(settings.asset_path))
+                        rel_path = str(Path(save_path).relative_to(settings.asset_path)).replace('\\', '/')
                         gen.local_path = rel_path
                         gen.status = AssetStatus.REVIEW
                         gen.completed_at = datetime.now(timezone.utc)

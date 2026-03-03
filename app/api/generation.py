@@ -449,7 +449,7 @@ async def import_task(
 
             dl_ok = await kie.download_file(task_status.result_urls[0], str(save_path))
             if dl_ok:
-                rel_path = str(save_path.relative_to(settings.asset_path))
+                rel_path = str(save_path.relative_to(settings.asset_path)).replace('\\', '/')
                 gen.result_url = task_status.result_urls[0]
                 gen.local_path = rel_path
                 gen.status = AssetStatus.REVIEW
@@ -604,7 +604,7 @@ async def import_character_task(
 
             dl_ok = await kie.download_file(task_status.result_urls[0], str(save_path))
             if dl_ok:
-                rel_path = str(save_path.relative_to(settings.asset_path))
+                rel_path = str(save_path.relative_to(settings.asset_path)).replace('\\', '/')
                 gen.result_url = task_status.result_urls[0]
                 gen.local_path = rel_path
                 gen.status = AssetStatus.REVIEW
@@ -701,7 +701,7 @@ async def upload_shot_file(
     content = await file.read()
     save_path.write_bytes(content)
 
-    rel_path = str(save_path.relative_to(settings.asset_path))
+    rel_path = str(save_path.relative_to(settings.asset_path)).replace('\\', '/')
 
     if is_video:
         shot.video_path = rel_path
@@ -743,7 +743,7 @@ async def upload_character_file(
     content = await file.read()
     save_path.write_bytes(content)
 
-    rel_path = str(save_path.relative_to(settings.asset_path))
+    rel_path = str(save_path.relative_to(settings.asset_path)).replace('\\', '/')
     char.reference_image_path = rel_path
     char.status = AssetStatus.REVIEW
     await db.commit()

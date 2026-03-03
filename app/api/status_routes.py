@@ -5,9 +5,68 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Episode, Shot, Character, AssetStatus, ShotType, _derive_asset_statuses
+from app.models import (
+    Episode, Shot, Character, Generation,
+    AssetStatus, ShotType, GenerationType, _derive_asset_statuses,
+)
 
 router = APIRouter(prefix="/api/status")
+
+
+def _compute_asset_statuses(shot: Shot) -> tuple[str, str]:
+    """Compute per-asset statuses using Generation records for accuracy.
+
+    Unlike _derive_asset_statuses (which infers from the single shot.status
+    field), this checks the latest generation record for each asset type,
+    eliminating ambiguity for VEO3_CLIP shots where image and video are
+    separate workflows.
+    """
+    is_clip = shot.shot_type == ShotType.VEO3_CLIP
+
+    # --- image status from latest generation record ---
+    latest_img = shot.latest_image_gen
+    if latest_img:
+        if latest_img.status == AssetStatus.GENERATING:
+            img_st = "generating"
+        elif latest_img.status == AssetStatus.REVIEW:
+            img_st = "review"
+        elif latest_img.status == AssetStatus.APPROVED:
+            img_st = "approved"
+        elif latest_img.status == AssetStatus.FAILED:
+            img_st = "failed"
+        else:  # PENDING, REJECTED
+            img_st = "pending"
+    elif shot.image_path:
+        img_st = "approved"  # pre-existing / imported without a generation record
+    else:
+        img_st = "pending"
+
+    # --- video status ---
+    if not is_clip:
+        return img_st, "n/a"
+
+    # Video is locked until the image is approved
+    if img_st != "approved":
+        return img_st, "locked"
+
+    latest_vid = shot.latest_video_gen
+    if latest_vid:
+        if latest_vid.status == AssetStatus.GENERATING:
+            vid_st = "generating"
+        elif latest_vid.status == AssetStatus.REVIEW:
+            vid_st = "review"
+        elif latest_vid.status == AssetStatus.APPROVED:
+            vid_st = "approved"
+        elif latest_vid.status == AssetStatus.FAILED:
+            vid_st = "failed"
+        else:
+            vid_st = "pending"
+    elif shot.video_path:
+        vid_st = "approved"
+    else:
+        vid_st = "pending"
+
+    return img_st, vid_st
 
 
 @router.get("/episode/{episode_id}")
@@ -20,7 +79,7 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
         select(Episode)
         .where(Episode.id == episode_id)
         .options(
-            selectinload(Episode.shots),
+            selectinload(Episode.shots).selectinload(Shot.generations),
             selectinload(Episode.characters),
         )
     )
@@ -32,7 +91,7 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
 
     shots = []
     for s in episode.shots:
-        img_st, vid_st = _derive_asset_statuses(s)
+        img_st, vid_st = _compute_asset_statuses(s)
         shots.append({
             "id": s.id,
             "status": s.status.value,

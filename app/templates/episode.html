@@ -385,6 +385,20 @@ function episodePage(episodeId) {
 
         // Actions
         async action(url) {
+            // Optimistic UI: immediately show "generating" state
+            const genMatch = url.match(/\/shot\/(\d+)\/(image|video)$/);
+            if (genMatch) {
+                const sid = parseInt(genMatch[1]);
+                const field = genMatch[2] === 'video' ? 'vid' : 'img';
+                if (this.ss[sid]) {
+                    this.ss[sid] = { ...this.ss[sid], [field]: 'generating' };
+                }
+            }
+            const charGenMatch = url.match(/\/character\/(\d+)$/);
+            if (charGenMatch && !url.includes('approve') && !url.includes('reject')) {
+                // Character generation — poll will pick up the status
+            }
+
             try {
                 const r = await fetch(url, { method: 'POST' });
                 const d = await r.json();
@@ -417,10 +431,10 @@ function episodePage(episodeId) {
     };
 }
 
-// Encode path segments for URLs with special chars like #
+// Encode path segments for URLs with special chars like # (handles both / and \ separators)
 function _assetUrl(path) {
     if (!path) return null;
-    return '/assets/' + path.split('/').map(s => encodeURIComponent(s)).join('/');
+    return '/assets/' + path.replace(/\\/g, '/').split('/').map(s => encodeURIComponent(s)).join('/');
 }
 </script>
 {% endblock %}
