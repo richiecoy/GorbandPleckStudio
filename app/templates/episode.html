@@ -2,7 +2,8 @@
 {% block title %}EP{{ '%02d' % episode.number }}: {{ episode.title }}{% endblock %}
 
 {% block content %}
-<div x-data="episodePage({{ episode.id }}, {{ shot_statuses | tojson }})" x-init="startPolling()">
+<script>window.__shotStatuses = {{ shot_statuses | tojson }};</script>
+<div x-data="episodePage({{ episode.id }})" x-init="startPolling()">
 
     <div class="page-header">
         <div class="header-left">
@@ -340,12 +341,11 @@
 
 {% block scripts %}
 <script>
-function episodePage(episodeId, initialStatuses) {
+function episodePage(episodeId) {
     return {
         episodeId,
         status: { stats: null, shots: [], characters: [] },
-        // NOTE: Do NOT name this "init" — that's a reserved Alpine lifecycle hook
-        shotInit: initialStatuses,
+        shotInit: window.__shotStatuses || {},
         polling: null,
 
         startPolling() {
