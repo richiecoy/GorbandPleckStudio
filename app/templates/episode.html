@@ -350,12 +350,16 @@ function episodePage(episodeId) {
         async poll() {
             try {
                 const r = await fetch('/api/status/episode/' + this.episodeId);
-                if (!r.ok) return;
+                if (!r.ok) { console.error('Poll HTTP error:', r.status); return; }
                 const data = await r.json();
 
                 // Rebuild ss from poll data — single reactive assignment
                 const next = {};
                 for (const s of (data.shots || [])) {
+                    // Debug: log any shot that has generating status or a generation in progress
+                    if (s.status === 'generating' || s.image_status === 'generating' || s.video_status === 'generating') {
+                        console.log('POLL shot', s.id, '→ status:', s.status, 'img:', s.image_status, 'vid:', s.video_status, 'path:', s.image_path);
+                    }
                     next[s.id] = {
                         img: s.image_status,
                         vid: s.video_status,

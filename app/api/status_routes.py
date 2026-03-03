@@ -1,4 +1,5 @@
 """Live status polling endpoint for episode detail page."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,8 @@ from app.models import (
     Episode, Shot, Character, Generation,
     AssetStatus, ShotType, GenerationType, _derive_asset_statuses,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/status")
 
@@ -92,6 +95,14 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
     shots = []
     for s in episode.shots:
         img_st, vid_st = _compute_asset_statuses(s)
+        latest_img = s.latest_image_gen
+        gen_count = len(s.generations) if s.generations else 0
+        if s.status == AssetStatus.GENERATING or gen_count > 0:
+            logger.info(
+                f"Shot {s.id} (#{s.number}): status={s.status.value}, "
+                f"gens={gen_count}, latest_img_gen={latest_img.status.value if latest_img else None}, "
+                f"=> img_st={img_st}, vid_st={vid_st}"
+            )
         shots.append({
             "id": s.id,
             "status": s.status.value,
