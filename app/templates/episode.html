@@ -526,11 +526,11 @@ function _computeStats(ss, cs, genTypes) {
         st.total++;
         dbg.imgCounted++;
         if (st[s.img] !== undefined) st[s.img]++;
-        // Count video asset for clips
-        if (s.vid && s.vid !== 'n/a') {
+        // Count video asset only for veo3 clips
+        if (s.stype === 'veo3_clip') {
             st.total++;
             dbg.vidCounted++;
-            const b = s.vid === 'locked' ? 'pending' : s.vid;
+            const b = (!s.vid || s.vid === 'locked' || s.vid === 'n/a') ? 'pending' : s.vid;
             if (st[b] !== undefined) st[b]++;
         }
     }
