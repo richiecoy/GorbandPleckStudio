@@ -71,7 +71,10 @@ template_dir = Path(__file__).parent / "templates"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.mount("/assets", StaticFiles(directory=str(settings.asset_path)), name="assets")
 
+from urllib.parse import quote as urlquote
+
 templates = Jinja2Templates(directory=str(template_dir))
+templates.env.filters["urlencode_path"] = lambda s: urlquote(str(s), safe="/")
 app.state.templates = templates
 
 # Routes

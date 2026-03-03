@@ -1,7 +1,7 @@
 """Generation management routes - trigger, approve, reject, redo, import, preview."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, Request, Body, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -430,31 +430,35 @@ async def import_task(
 
         if task_status.done and task_status.result_urls:
             from pathlib import Path
-            ep_slug = shot.episode.slug
-            shot_dir = settings.asset_path / ep_slug / "Assets" / f"shot-{shot.number:02d}"
-            shot_dir.mkdir(parents=True, exist_ok=True)
+            from app.services.scheduler import _segment_folder_name
+            ep = shot.episode
+            seg_folder = _segment_folder_name(shot.segment) if shot.segment else "Other"
+            save_dir = settings.asset_path / ep.slug / "Assets" / seg_folder
+            save_dir.mkdir(parents=True, exist_ok=True)
 
             ext = ".mp4" if is_video else ".png"
-            filename = f"shot-{shot.number:02d}_{gen_type.value}_{gen.id}{ext}"
-            save_path = shot_dir / filename
+            shot_name = shot.name or f"Shot {shot.number}"
+            filename = f"Shot {shot.number} - {shot_name}{ext}"
+            save_path = save_dir / filename
 
             dl_ok = await kie.download_file(task_status.result_urls[0], str(save_path))
             if dl_ok:
+                rel_path = str(save_path.relative_to(settings.asset_path))
                 gen.result_url = task_status.result_urls[0]
-                gen.local_path = str(save_path)
+                gen.local_path = rel_path
                 gen.status = AssetStatus.REVIEW
                 gen.completed_at = datetime.now(timezone.utc)
 
                 if is_video:
-                    shot.video_path = str(save_path)
+                    shot.video_path = rel_path
                     shot.video_url = task_status.result_urls[0]
                 else:
-                    shot.image_path = str(save_path)
+                    shot.image_path = rel_path
                     shot.image_url = task_status.result_urls[0]
 
                 shot.status = AssetStatus.REVIEW
                 await db.commit()
-                return {"ok": True, "status": "downloaded", "path": str(save_path)}
+                return {"ok": True, "status": "downloaded", "path": rel_path}
 
         if task_status.failed:
             gen.status = AssetStatus.FAILED
@@ -544,6 +548,201 @@ async def preview_payload(
                 })
 
     return preview
+
+
+# ── Character Import / Preview ──────────────────────────────────────
+
+@router.post("/character/{character_id}/import-task")
+async def import_character_task(
+    character_id: int,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import a character reference image generated outside the app by task ID."""
+    task_id = payload.get("task_id", "").strip()
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+
+    result = await db.execute(
+        select(Character).where(Character.id == character_id)
+        .options(selectinload(Character.episode), selectinload(Character.generations))
+    )
+    char = result.scalar_one_or_none()
+    if not char:
+        raise HTTPException(status_code=404)
+
+    gen = Generation(
+        character_id=char.id,
+        gen_type=GenerationType.CHARACTER,
+        status=AssetStatus.GENERATING,
+        task_id=task_id,
+        prompt_used="[imported externally]",
+    )
+    db.add(gen)
+    char.status = AssetStatus.GENERATING
+    await db.commit()
+    await db.refresh(gen)
+
+    # Try immediate poll
+    try:
+        task_status = await kie.get_image_status(task_id)
+        if task_status.done and task_status.result_urls:
+            from pathlib import Path
+            ep = char.episode
+            if ep:
+                save_dir = settings.asset_path / ep.slug / "Assets" / "characters"
+            else:
+                save_dir = settings.asset_path / "characters"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            save_path = save_dir / f"{char.name}.png"
+
+            dl_ok = await kie.download_file(task_status.result_urls[0], str(save_path))
+            if dl_ok:
+                rel_path = str(save_path.relative_to(settings.asset_path))
+                gen.result_url = task_status.result_urls[0]
+                gen.local_path = rel_path
+                gen.status = AssetStatus.REVIEW
+                gen.completed_at = datetime.now(timezone.utc)
+                char.reference_image_path = rel_path
+                char.reference_image_url = task_status.result_urls[0]
+                char.status = AssetStatus.REVIEW
+                await db.commit()
+                return {"ok": True, "status": "downloaded", "path": rel_path}
+
+        if task_status.failed:
+            gen.status = AssetStatus.FAILED
+            gen.error_message = task_status.error or "Task failed"
+            char.status = AssetStatus.FAILED
+            await db.commit()
+            return {"ok": False, "status": "failed", "error": task_status.error}
+    except Exception:
+        pass
+
+    await db.commit()
+    return {"ok": True, "status": "queued"}
+
+
+@router.get("/character/{character_id}/preview")
+async def preview_character_payload(
+    character_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview the payload that would be sent to kie.ai for this character."""
+    result = await db.execute(
+        select(Character).where(Character.id == character_id)
+    )
+    char = result.scalar_one_or_none()
+    if not char:
+        raise HTTPException(status_code=404)
+
+    prompt = char.prompt or char.description or ""
+    full_prompt = (
+        f"Photorealistic 3D CGI render, Pixar-quality. "
+        f"Character reference portrait, head and upper body, neutral background. "
+        f"{prompt}"
+    )
+
+    return {
+        "character_id": char.id,
+        "character_name": char.name,
+        "description": char.description,
+        "image_request": {
+            "url": f"{settings.kie_api_base}/api/v1/jobs/createTask",
+            "body": {
+                "model": settings.get("default_image_model") or settings.default_image_model,
+                "prompt": full_prompt,
+                "aspect_ratio": "1:1",
+                "resolution": "1K",
+                "output_format": "png",
+            }
+        }
+    }
+
+
+# ── Local File Upload ───────────────────────────────────────────────
+
+@router.post("/shot/{shot_id}/upload-file")
+async def upload_shot_file(
+    shot_id: int,
+    file: UploadFile = File(...),
+    file_type: str = Form("image"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a local file as the image or video for a shot."""
+    from pathlib import Path
+
+    result = await db.execute(
+        select(Shot).where(Shot.id == shot_id)
+        .options(selectinload(Shot.episode))
+    )
+    shot = result.scalar_one_or_none()
+    if not shot:
+        raise HTTPException(status_code=404)
+
+    is_video = file_type == "video"
+    ext = Path(file.filename).suffix or (".mp4" if is_video else ".png")
+
+    ep = shot.episode
+    from app.services.scheduler import _segment_folder_name
+    seg_folder = _segment_folder_name(shot.segment) if shot.segment else "Other"
+    save_dir = settings.asset_path / ep.slug / "Assets" / seg_folder
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    shot_name = shot.name or f"Shot {shot.number}"
+    filename = f"Shot {shot.number} - {shot_name}{ext}"
+    save_path = save_dir / filename
+
+    content = await file.read()
+    save_path.write_bytes(content)
+
+    rel_path = str(save_path.relative_to(settings.asset_path))
+
+    if is_video:
+        shot.video_path = rel_path
+    else:
+        shot.image_path = rel_path
+
+    shot.status = AssetStatus.REVIEW
+    await db.commit()
+
+    return {"ok": True, "path": rel_path}
+
+
+@router.post("/character/{character_id}/upload-file")
+async def upload_character_file(
+    character_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a local file as the reference image for a character."""
+    from pathlib import Path
+
+    result = await db.execute(
+        select(Character).where(Character.id == character_id)
+        .options(selectinload(Character.episode))
+    )
+    char = result.scalar_one_or_none()
+    if not char:
+        raise HTTPException(status_code=404)
+
+    ext = Path(file.filename).suffix or ".png"
+    ep = char.episode
+    if ep:
+        save_dir = settings.asset_path / ep.slug / "Assets" / "characters"
+    else:
+        save_dir = settings.asset_path / "characters"
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    save_path = save_dir / f"{char.name}{ext}"
+    content = await file.read()
+    save_path.write_bytes(content)
+
+    rel_path = str(save_path.relative_to(settings.asset_path))
+    char.reference_image_path = rel_path
+    char.status = AssetStatus.REVIEW
+    await db.commit()
+
+    return {"ok": True, "path": rel_path}
 
 
 # ── Helpers ─────────────────────────────────────────────────────────

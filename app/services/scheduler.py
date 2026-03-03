@@ -26,7 +26,10 @@ async def poll_pending_generations():
         result = await db.execute(
             select(Generation)
             .where(Generation.status == AssetStatus.GENERATING)
-            .options(selectinload(Generation.shot), selectinload(Generation.character))
+            .options(
+                selectinload(Generation.shot).selectinload(Shot.episode),
+                selectinload(Generation.character).selectinload(Character.episode),
+            )
         )
         pending = result.scalars().all()
 
@@ -52,21 +55,23 @@ async def poll_pending_generations():
                     downloaded = await kie.download_file(url, save_path)
 
                     if downloaded:
-                        gen.local_path = save_path
+                        from pathlib import Path
+                        rel_path = str(Path(save_path).relative_to(settings.asset_path))
+                        gen.local_path = rel_path
                         gen.status = AssetStatus.REVIEW
                         gen.completed_at = datetime.now(timezone.utc)
 
                         # Update parent shot or character
                         if gen.shot:
                             if gen.gen_type == GenerationType.VIDEO:
-                                gen.shot.video_path = save_path
+                                gen.shot.video_path = rel_path
                                 gen.shot.video_url = url
                             else:
-                                gen.shot.image_path = save_path
+                                gen.shot.image_path = rel_path
                                 gen.shot.image_url = url
                             gen.shot.status = AssetStatus.REVIEW
                         elif gen.character:
-                            gen.character.reference_image_path = save_path
+                            gen.character.reference_image_path = rel_path
                             gen.character.reference_image_url = url
                             gen.character.status = AssetStatus.REVIEW
                     else:
@@ -91,27 +96,50 @@ async def poll_pending_generations():
         await db.commit()
 
 
+def _segment_folder_name(segment: str) -> str:
+    """Map parser segment names to on-disk folder names."""
+    seg = segment.strip().upper()
+    if seg == "INTRO":
+        return "Intro"
+    if seg == "REVIEW":
+        return "Review"
+    if seg == "POST-CREDITS":
+        return "Post-Credits"
+    # "STORY SEGMENT 1" -> "Segment #1"
+    import re
+    m = re.match(r'STORY SEGMENT\s*(\d+)', seg)
+    if m:
+        return f"Segment #{m.group(1)}"
+    return segment.title()
+
+
 def _asset_path(gen: Generation) -> str:
     """Determine local save path for a generated asset."""
     base = settings.asset_path
 
     if gen.character:
-        folder = base / "characters"
+        # Find the episode this character belongs to
+        ep = gen.character.episode
+        if ep:
+            folder = base / ep.slug / "Assets" / "characters"
+        else:
+            folder = base / "characters"
+        folder.mkdir(parents=True, exist_ok=True)
         ext = ".png"
-        name = gen.character.name.lower().replace(" ", "-")
-        return str(folder / f"{name}_{gen.id}{ext}")
+        name = gen.character.name
+        return str(folder / f"{name}{ext}")
 
     if gen.shot:
         ep = gen.shot.episode
-        folder = base / "episodes" / f"ep{ep.number:02d}" / f"shot-{gen.shot.number:02d}"
+        seg_folder = _segment_folder_name(gen.shot.segment) if gen.shot.segment else "Other"
+        folder = base / ep.slug / "Assets" / seg_folder
         folder.mkdir(parents=True, exist_ok=True)
 
+        shot_name = gen.shot.name or f"Shot {gen.shot.number}"
         if gen.gen_type == GenerationType.VIDEO:
-            ext = ".mp4"
-            return str(folder / f"shot-{gen.shot.number:02d}_video_{gen.id}{ext}")
+            return str(folder / f"Shot {gen.shot.number} - {shot_name}.mp4")
         else:
-            ext = ".png"
-            return str(folder / f"shot-{gen.shot.number:02d}_image_{gen.id}{ext}")
+            return str(folder / f"Shot {gen.shot.number} - {shot_name}.png")
 
     return str(base / f"gen_{gen.id}.png")
 

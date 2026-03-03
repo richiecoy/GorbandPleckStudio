@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Episode, Shot, Character, ShotType, AssetStatus
-from app.services.scanner import scan_episodes, _read_visual_plan, _auto_parse
+from app.services.scanner import scan_episodes, _read_visual_plan, _auto_parse, _link_existing_assets
 
 router = APIRouter()
 
@@ -104,6 +104,16 @@ async def rescan_episode(
     episode.parsed_at = None
 
     await _auto_parse(episode, db)
+    await db.commit()
+
+    # Re-link existing assets after parse creates new shot/char records
+    result2 = await db.execute(
+        select(Episode)
+        .where(Episode.id == episode_id)
+        .options(selectinload(Episode.shots), selectinload(Episode.characters))
+    )
+    episode = result2.scalar_one()
+    await _link_existing_assets(episode, db)
     await db.commit()
 
     return RedirectResponse(url=f"/episodes/{episode.id}", status_code=303)

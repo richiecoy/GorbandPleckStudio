@@ -637,3 +637,71 @@ a:hover { color: var(--text); }
     border-radius: 3px;
 }
 .count-muted { color: var(--text-dim); font-size: 0.8rem; }
+
+/* ── Modal ───────────────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+.modal-dialog {
+    background: var(--card-bg, #1a1a2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 10px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-wide { max-width: 640px; }
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border, #333);
+}
+.modal-header h3 { margin: 0; font-size: 1rem; }
+.btn-close {
+    background: none;
+    border: none;
+    color: var(--text-dim, #888);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 0 0.25rem;
+    line-height: 1;
+}
+.btn-close:hover { color: var(--text, #eee); }
+.modal-body { padding: 1.25rem; }
+.modal-section { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
+.modal-section label { font-size: 0.82rem; font-weight: 500; color: var(--text-dim, #aaa); }
+.modal-footer { padding-top: 0.5rem; }
+.loading-text { color: var(--text-dim, #888); font-size: 0.85rem; }
+
+/* ── Tabs ────────────────────────────────────────────────────────── */
+.tab-row {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border, #333);
+}
+.tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim, #888);
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--text, #eee); }
+.tab-active {
+    color: var(--accent, #7c5cfc);
+    border-bottom-color: var(--accent, #7c5cfc);
+}

@@ -28,6 +28,14 @@ class TaskStatus:
     result_urls: list[str] | None = None
     error: str | None = None
 
+    @property
+    def done(self) -> bool:
+        return self.status in ("success", "completed")
+
+    @property
+    def failed(self) -> bool:
+        return self.status in ("failed", "error")
+
 
 class KieClient:
     """Client for kie.ai image and video generation APIs."""
@@ -35,13 +43,17 @@ class KieClient:
     def __init__(self):
         self.base = settings.kie_api_base
         self.upload_base = settings.kie_upload_base
-        self.headers = {
-            "Authorization": f"Bearer {settings.kie_api_key}",
+
+    @property
+    def _headers(self) -> dict:
+        """Build headers dynamically so runtime API key overrides are picked up."""
+        return {
+            "Authorization": f"Bearer {settings.effective_kie_api_key}",
             "Content-Type": "application/json",
         }
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=60.0, headers=self.headers)
+        return httpx.AsyncClient(timeout=60.0, headers=self._headers)
 
     # ── File Upload ──────────────────────────────────────────────────
 
@@ -56,7 +68,7 @@ class KieClient:
             with open(path, "rb") as f:
                 resp = await client.post(
                     f"{self.upload_base}/api/file-stream-upload",
-                    headers={"Authorization": f"Bearer {settings.kie_api_key}"},
+                    headers={"Authorization": f"Bearer {settings.effective_kie_api_key}"},
                     files={"file": (path.name, f, _mime_type(path))},
                     data={
                         "uploadPath": upload_path,
