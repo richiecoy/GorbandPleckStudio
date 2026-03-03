@@ -387,6 +387,11 @@ function episodePage(episodeId) {
                 if (!r.ok) return;
                 const data = await r.json();
 
+                // Detect if anything was generating before this poll
+                const wasGenerating =
+                    Object.values(this.ss).some(s => s.img === 'generating' || s.vid === 'generating') ||
+                    Object.values(this.cs).some(c => c.status === 'generating');
+
                 // Rebuild ss from poll data — single reactive assignment
                 const next = {};
                 for (const s of (data.shots || [])) {
@@ -424,6 +429,17 @@ function episodePage(episodeId) {
                     };
                 }
                 this.cs = nextCS;
+
+                // If generation just completed, reload to pick up fresh server-rendered data
+                if (wasGenerating) {
+                    const stillGenerating =
+                        Object.values(next).some(s => s.img === 'generating' || s.vid === 'generating') ||
+                        Object.values(nextCS).some(c => c.status === 'generating');
+                    if (!stillGenerating) {
+                        location.reload();
+                        return;
+                    }
+                }
             } catch (e) {
                 console.error('Poll failed:', e);
             }
