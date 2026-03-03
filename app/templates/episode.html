@@ -413,6 +413,7 @@ function episodePage(episodeId) {
 
                 // Rebuild cs from poll data — character states
                 const nextCS = {};
+                console.log('[STUDIO POLL] raw characters:', JSON.stringify(data.characters));
                 for (const c of (data.characters || [])) {
                     nextCS[c.id] = {
                         status: c.status,

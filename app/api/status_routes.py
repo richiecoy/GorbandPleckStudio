@@ -123,16 +123,19 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
             "video_path": s.video_path,
         })
 
-    characters = [
-        {
+    characters = []
+    for c in episode.characters:
+        logger.info(
+            f"POLL char {c.id} ({c.name}): ref_img_path={c.reference_image_path!r}, "
+            f"status={c.status.value}"
+        )
+        characters.append({
             "id": c.id,
             "status": c.status.value,
             "has_image": bool(c.reference_image_path),
             "image_path": c.reference_image_path,
             "is_main": c.is_main,
-        }
-        for c in episode.characters
-    ]
+        })
 
     return {
         "stats": stats,
