@@ -107,13 +107,7 @@ async def rescan_episode(
     await db.commit()
 
     # Re-link existing assets after parse creates new shot/char records
-    result2 = await db.execute(
-        select(Episode)
-        .where(Episode.id == episode_id)
-        .options(selectinload(Episode.shots), selectinload(Episode.characters))
-    )
-    episode = result2.scalar_one()
-    await _link_existing_assets(episode, db)
+    await _link_existing_assets(episode_id, db)
     await db.commit()
 
-    return RedirectResponse(url=f"/episodes/{episode.id}", status_code=303)
+    return RedirectResponse(url=f"/episodes/{episode_id}", status_code=303)

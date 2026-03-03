@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -110,7 +110,7 @@ async def scan_episodes(db: AsyncSession) -> dict:
     all_episodes = result.scalars().all()
     for episode in all_episodes:
         try:
-            await _link_existing_assets(episode, db)
+            await _link_existing_assets(episode.id, db)
         except Exception as e:
             logger.error(f"Asset linking error for {episode.slug}: {e}")
 
@@ -180,13 +180,26 @@ async def _auto_parse(episode: Episode, db: AsyncSession):
     episode.parsed_at = datetime.now(timezone.utc)
 
 
-async def _link_existing_assets(episode: Episode, db: AsyncSession):
+async def _link_existing_assets(episode_id: int, db: AsyncSession):
     """
     Scan the episode's Assets/ folder for existing image/video files
     and link them to the matching shots and characters.
+    Uses direct DB queries to avoid ORM identity map staleness.
     """
     import re
+    from sqlalchemy import update
+
+    # Fresh load of the episode
+    result = await db.execute(
+        select(Episode).where(Episode.id == episode_id)
+    )
+    episode = result.scalar_one_or_none()
+    if not episode:
+        return
+
     ep_dir = settings.asset_path / episode.slug
+    if not ep_dir.is_dir():
+        return
 
     # Find assets dir (case-insensitive)
     assets_dir = None
@@ -195,6 +208,7 @@ async def _link_existing_assets(episode: Episode, db: AsyncSession):
             assets_dir = entry
             break
     if not assets_dir:
+        logger.info(f"No Assets/ folder found in {ep_dir}")
         return
 
     # ── Link character reference images ──
@@ -205,28 +219,45 @@ async def _link_existing_assets(episode: Episode, db: AsyncSession):
             break
 
     if chars_dir:
-        char_map = {c.name.lower(): c for c in episode.characters}
+        # Load characters directly
+        char_result = await db.execute(
+            select(Character).where(Character.episode_id == episode_id)
+        )
+        characters = char_result.scalars().all()
+        char_map = {c.name.lower(): c for c in characters}
+
         for f in chars_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
                 continue
-            # Skip cropped versions
             if "crop" in f.stem.lower():
                 continue
-            # Match by character name in filename
             fname_lower = f.stem.lower()
             for name, char in char_map.items():
                 if name in fname_lower and not char.reference_image_path:
-                    # Store path relative to the asset_dir mount
                     rel_path = str(f.relative_to(settings.asset_path))
-                    char.reference_image_path = rel_path
-                    char.status = AssetStatus.APPROVED
-                    logger.info(f"Linked existing character ref: {char.name} -> {rel_path}")
+                    # Direct SQL update to be certain
+                    await db.execute(
+                        update(Character)
+                        .where(Character.id == char.id)
+                        .values(
+                            reference_image_path=rel_path,
+                            status=AssetStatus.APPROVED,
+                        )
+                    )
+                    logger.info(f"Linked character ref: {char.name} -> {rel_path}")
                     break
 
     # ── Link shot images and videos ──
     shot_pattern = re.compile(r'(?:Shot|Still)\s*(\d+)', re.IGNORECASE)
-    shot_map = {s.number: s for s in episode.shots}
 
+    # Load shots directly
+    shot_result = await db.execute(
+        select(Shot).where(Shot.episode_id == episode_id)
+    )
+    shots = shot_result.scalars().all()
+    shot_map = {s.number: s for s in shots}
+
+    linked_count = 0
     for f in _walk_media_files(assets_dir):
         match = shot_pattern.search(f.name)
         if not match:
@@ -240,15 +271,29 @@ async def _link_existing_assets(episode: Episode, db: AsyncSession):
         ext = f.suffix.lower()
 
         if ext in (".png", ".jpg", ".jpeg", ".webp") and not shot.image_path:
-            shot.image_path = rel_path
-            if shot.status == AssetStatus.PENDING:
-                shot.status = AssetStatus.APPROVED
-            logger.info(f"Linked existing image: shot {shot_num} -> {rel_path}")
+            # Direct SQL update
+            await db.execute(
+                update(Shot)
+                .where(Shot.id == shot.id)
+                .values(
+                    image_path=rel_path,
+                    status=AssetStatus.APPROVED if shot.status == AssetStatus.PENDING else shot.status,
+                )
+            )
+            shot.image_path = rel_path  # Update local obj so we skip dupes
+            linked_count += 1
+            logger.info(f"Linked image: shot {shot_num} -> {rel_path}")
         elif ext == ".mp4" and not shot.video_path:
+            await db.execute(
+                update(Shot)
+                .where(Shot.id == shot.id)
+                .values(video_path=rel_path)
+            )
             shot.video_path = rel_path
-            if shot.needs_video and shot.status == AssetStatus.PENDING:
-                shot.status = AssetStatus.APPROVED
-            logger.info(f"Linked existing video: shot {shot_num} -> {rel_path}")
+            logger.info(f"Linked video: shot {shot_num} -> {rel_path}")
+
+    await db.flush()
+    logger.info(f"Asset linking complete for {episode.slug}: {linked_count} images linked")
 
 
 def _walk_media_files(directory: Path):
