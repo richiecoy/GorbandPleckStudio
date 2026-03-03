@@ -358,37 +358,140 @@ a:hover { color: var(--text); }
     min-width: 80px;
 }
 
-/* ── Shot Preview ────────────────────────────────────── */
-.shot-preview {
-    aspect-ratio: 16/9;
+/* ── Asset Box (shared by Image + Video) ─────────────── */
+.asset-box {
+    border-top: 1px solid var(--border);
+}
+
+.asset-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.3rem 0.65rem;
+    background: rgba(255,255,255,0.02);
+}
+
+.asset-type-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.image-box .asset-type-label { color: #2d6a4f; }
+.video-box .asset-type-label { color: #6c3483; }
+
+.asset-preview {
     background: var(--bg-deep);
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    position: relative;
 }
 
-.shot-preview img {
+.aspect-16-9 { aspect-ratio: 16/9; }
+
+.asset-preview img,
+.asset-preview video {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
+.asset-preview .fill { width: 100%; height: 100%; object-fit: cover; }
+
 .placeholder {
     font-size: 0.75rem;
     color: var(--text-muted);
     text-align: center;
+    padding: 0.5rem;
 }
 
-/* ── Shot Actions ────────────────────────────────────── */
-.shot-actions {
-    padding: 0.4rem 0.65rem;
+/* ── Asset Actions ───────────────────────────────────── */
+.asset-actions {
+    padding: 0.35rem 0.65rem;
     display: flex;
     gap: 0.3rem;
     flex-wrap: wrap;
-    min-height: 36px;
+    min-height: 32px;
     align-items: center;
 }
+
+.action-group { display: flex; gap: 0.3rem; align-items: center; }
+.action-spacer { flex: 1; }
+.action-right { display: flex; gap: 0.3rem; margin-left: auto; }
+
+.approved-indicator {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--success);
+}
+
+.failed-indicator {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--danger);
+}
+
+.locked-indicator {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* ── Locked / Greyed Video Box ───────────────────────── */
+.asset-locked {
+    opacity: 0.35;
+    pointer-events: none;
+    position: relative;
+}
+
+.asset-locked .asset-preview::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 8px,
+        rgba(255,255,255,0.03) 8px,
+        rgba(255,255,255,0.03) 16px
+    );
+}
+
+/* ── Asset status border accents ─────────────────────── */
+.asset-approved { border-left: 2px solid var(--success); }
+.asset-review { border-left: 2px solid var(--info); }
+.asset-generating { border-left: 2px solid var(--generating); }
+.asset-failed { border-left: 2px solid var(--danger); }
+.asset-pending { border-left: 2px solid transparent; }
+.asset-locked { border-left: 2px solid transparent; }
+
+/* ── Minimal preview for non-generatable shots ───────── */
+.shot-preview-minimal {
+    padding: 1rem;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--border);
+    text-align: center;
+}
+
+/* ── Expand Arrow ────────────────────────────────────── */
+.expand-arrow {
+    font-size: 1rem;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+    transform: rotate(0deg);
+    margin-left: 0.25rem;
+    line-height: 1;
+}
+
+.expand-arrow.expanded {
+    transform: rotate(90deg);
+}
+
+/* Status label overrides */
+.status-locked { color: var(--text-muted); background: rgba(85,85,106,0.15); }
 
 .generating-indicator {
     font-size: 0.75rem;

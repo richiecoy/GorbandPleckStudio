@@ -67,8 +67,8 @@
         <div class="form-group">
             <label>Type</label>
             <select id="importType">
-                <option value="image">Image</option>
-                <option value="video">Video</option>
+                <option value="image" {{ 'selected' if import_mode == 'image' else '' }}>Image</option>
+                <option value="video" {{ 'selected' if import_mode == 'video' else '' }}>Video</option>
             </select>
         </div>
         {% endif %}
@@ -82,8 +82,8 @@
         <div class="form-group">
             <label>File Type</label>
             <select id="uploadType">
-                <option value="image">Image</option>
-                <option value="video">Video</option>
+                <option value="image" {{ 'selected' if import_mode == 'image' else '' }}>Image</option>
+                <option value="video" {{ 'selected' if import_mode == 'video' else '' }}>Video</option>
             </select>
         </div>
         {% endif %}

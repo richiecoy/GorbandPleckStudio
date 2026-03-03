@@ -75,10 +75,13 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 # app.mount("/assets", ...) was removed because it captured the path at import time,
 # before DB settings load.
 
+import json
 from urllib.parse import quote as urlquote
 
 templates = Jinja2Templates(directory=str(template_dir))
 templates.env.filters["urlencode_path"] = lambda s: urlquote(str(s), safe="/")
+from markupsafe import Markup
+templates.env.filters["tojson"] = lambda v: Markup(json.dumps(v))
 app.state.templates = templates
 
 # Routes

@@ -1,21 +1,26 @@
 """Popup window routes for Import and Preview."""
 import json
 
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Shot, Character, Episode, AssetStatus
+from app.models import Shot, Character, Episode, AssetStatus, ShotType
 from app.config import settings
 
 router = APIRouter(prefix="/popup")
 
 
 @router.get("/preview/shot/{shot_id}", response_class=HTMLResponse)
-async def preview_shot_popup(request: Request, shot_id: int, db: AsyncSession = Depends(get_db)):
+async def preview_shot_popup(
+    request: Request,
+    shot_id: int,
+    mode: str = Query("image", regex="^(image|video)$"),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Shot).where(Shot.id == shot_id)
         .options(selectinload(Shot.episode).selectinload(Episode.characters))
@@ -24,12 +29,17 @@ async def preview_shot_popup(request: Request, shot_id: int, db: AsyncSession = 
     if not shot:
         raise HTTPException(status_code=404)
 
-    ref_urls = _get_reference_urls(shot)
-    preview = _build_shot_preview(shot, ref_urls)
+    if mode == "video":
+        preview = _build_video_preview(shot)
+        title = f"Shot #{shot.number} — Video Prompt"
+    else:
+        ref_urls = _get_reference_urls(shot)
+        preview = _build_image_preview(shot, ref_urls)
+        title = f"Shot #{shot.number} — Image Payload"
 
     return request.app.state.templates.TemplateResponse("popup_preview.html", {
         "request": request,
-        "title": f"Shot #{shot.number} {shot.name}",
+        "title": title,
         "payload_json": json.dumps(preview, indent=2),
     })
 
@@ -72,7 +82,12 @@ async def preview_character_popup(request: Request, character_id: int, db: Async
 
 
 @router.get("/import/shot/{shot_id}", response_class=HTMLResponse)
-async def import_shot_popup(request: Request, shot_id: int, db: AsyncSession = Depends(get_db)):
+async def import_shot_popup(
+    request: Request,
+    shot_id: int,
+    mode: str = Query("image", regex="^(image|video)$"),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(Shot).where(Shot.id == shot_id))
     shot = result.scalar_one_or_none()
     if not shot:
@@ -83,6 +98,7 @@ async def import_shot_popup(request: Request, shot_id: int, db: AsyncSession = D
         "title": f"Shot #{shot.number} {shot.name}",
         "target_type": "shot",
         "target_id": shot.id,
+        "import_mode": mode,
     })
 
 
@@ -98,10 +114,11 @@ async def import_character_popup(request: Request, character_id: int, db: AsyncS
         "title": char.name,
         "target_type": "character",
         "target_id": char.id,
+        "import_mode": "image",
     })
 
 
-# ── Helpers (duplicated from generation.py to avoid circular imports) ──
+# ── Helpers ──────────────────────────────────────────────────────────
 
 def _get_reference_urls(shot: Shot) -> list[str]:
     urls = []
@@ -115,53 +132,33 @@ def _get_reference_urls(shot: Shot) -> list[str]:
     return urls
 
 
-def _build_shot_preview(shot: Shot, ref_urls: list[str]) -> dict:
-    from app.models import ShotType
-    preview = {
-        "shot_id": shot.id,
-        "shot_number": shot.number,
-        "shot_name": shot.name,
-        "shot_type": shot.shot_type.value,
+def _build_image_preview(shot: Shot, ref_urls: list[str]) -> dict:
+    """Build the exact kie.ai createTask payload that would be sent."""
+    if not shot.nano_prompt:
+        return {"note": "No Nano Banana prompt set for this shot."}
+
+    payload = {
+        "model": settings.get("default_image_model") or settings.default_image_model,
+        "input": {
+            "prompt": shot.nano_prompt,
+            "image_input": ref_urls if ref_urls else [],
+            "aspect_ratio": "16:9",
+            "resolution": "2K",
+            "output_format": "png",
+        }
     }
 
-    if shot.nano_prompt:
-        image_payload = {
-            "url": f"{settings.kie_api_base}/api/v1/jobs/createTask",
-            "body": {
-                "model": settings.get("default_image_model") or settings.default_image_model,
-                "prompt": shot.nano_prompt,
-                "aspect_ratio": "16:9",
-                "resolution": "2K",
-                "output_format": "png",
-            }
-        }
-        if ref_urls:
-            image_payload["body"]["image_input"] = [{"url": u} for u in ref_urls]
-        preview["image_request"] = image_payload
+    cb = settings.callback_url
+    if cb:
+        payload["callBackUrl"] = cb
 
-    if shot.shot_type == ShotType.VEO3_CLIP and shot.veo3_prompt:
-        video_payload = {
-            "url": f"{settings.kie_api_base}/api/v1/veo/generate",
-            "body": {
-                "model": settings.get("default_video_model") or settings.default_video_model,
-                "prompt": shot.veo3_prompt,
-                "generationType": "FIRST_AND_LAST_FRAMES_2_VIDEO" if shot.image_url else "TEXT_2_VIDEO",
-            }
-        }
-        if shot.image_url:
-            video_payload["body"]["imageUrls"] = [shot.image_url]
-        preview["video_request"] = video_payload
+    return payload
 
-    preview["character_references"] = []
-    if shot.episode and shot.episode.characters:
-        char_map = {c.name.lower(): c for c in shot.episode.characters}
-        for ref_name in (shot.character_refs or []):
-            char = char_map.get(ref_name.lower())
-            if char:
-                preview["character_references"].append({
-                    "name": char.name,
-                    "status": char.status.value,
-                    "has_url": bool(char.reference_image_url),
-                })
 
-    return preview
+def _build_video_preview(shot: Shot) -> dict:
+    """Build video preview — just the prompt."""
+    return {
+        "shot": f"#{shot.number} — {shot.name}",
+        "veo3_prompt": shot.veo3_prompt or "(no Veo3 prompt set)",
+        "start_frame": "approved" if shot.image_url else "not yet approved",
+    }

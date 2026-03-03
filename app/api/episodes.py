@@ -64,11 +64,24 @@ async def episode_detail(
             segments[seg] = []
         segments[seg].append(shot)
 
+    # Compute initial image/video statuses and paths for each shot
+    from app.api.status_routes import _derive_statuses
+    shot_statuses = {}
+    for shot in episode.shots:
+        img_st, vid_st = _derive_statuses(shot)
+        shot_statuses[shot.id] = {
+            "image_status": img_st,
+            "video_status": vid_st,
+            "image_path": shot.image_path,
+            "video_path": shot.video_path,
+        }
+
     return request.app.state.templates.TemplateResponse(
         "episode.html", {
             "request": request,
             "episode": episode,
             "segments": segments,
+            "shot_statuses": shot_statuses,
             "AssetStatus": AssetStatus,
             "ShotType": ShotType,
         }

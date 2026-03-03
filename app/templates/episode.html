@@ -2,7 +2,7 @@
 {% block title %}EP{{ '%02d' % episode.number }}: {{ episode.title }}{% endblock %}
 
 {% block content %}
-<div x-data="episodePage({{ episode.id }})" x-init="startPolling()">
+<div x-data="episodePage({{ episode.id }}, {{ shot_statuses | tojson }})" x-init="startPolling()">
 
     <div class="page-header">
         <div class="header-left">
@@ -46,6 +46,7 @@
         </div>
     </div>
 
+    {# ── Characters Panel ───────────────────────────────────────── #}
     {% if episode.characters %}
     <section class="panel">
         <div class="panel-header">
@@ -93,6 +94,7 @@
     </section>
     {% endif %}
 
+    {# ── Batch Bar ──────────────────────────────────────────────── #}
     <div class="batch-bar">
         <button class="btn btn-primary"
                 @click="batchAction('/api/generate/episode/{{ episode.id }}/generate-all-images')">
@@ -100,6 +102,7 @@
         </button>
     </div>
 
+    {# ── Shots by Segment ───────────────────────────────────────── #}
     {% for segment_name, shots in segments.items() %}
     <section class="panel segment-panel">
         <div class="panel-header">
@@ -108,7 +111,14 @@
         </div>
         <div class="shot-grid">
             {% for shot in shots %}
-            <div class="shot-card" :class="shotClass({{ shot.id }})" x-data="{expanded: false}">
+            {% set is_generatable = shot.shot_type.value in ['still', 'veo3_clip', 'title_card'] %}
+            {% set is_clip = shot.shot_type.value == 'veo3_clip' %}
+
+            <div class="shot-card"
+                 :class="shotBorderClass({{ shot.id }})"
+                 x-data="{expanded: false}">
+
+                {# ── Shot Header ──────────────────────────────── #}
                 <div class="shot-header" @click="expanded = !expanded">
                     <div class="shot-id">
                         <span class="shot-num">#{{ shot.number }}</span>
@@ -117,63 +127,182 @@
                         </span>
                     </div>
                     <div class="shot-name">{{ shot.name }}</div>
-                    <span class="status-badge"
-                          :class="'status-' + (shotStatus({{ shot.id }}) || '{{ shot.status.value }}')">
-                        <span x-text="shotStatus({{ shot.id }}) || '{{ shot.status.value }}'">{{ shot.status.value }}</span>
-                    </span>
+                    <span class="expand-arrow" :class="expanded && 'expanded'">&rsaquo;</span>
                 </div>
-                <div class="shot-preview">
-                    {% if shot.image_path %}
-                    <img src="/assets/{{ shot.image_path|urlencode_path }}"
-                         alt="Shot {{ shot.number }}" loading="lazy">
-                    {% else %}
-                    <div class="placeholder">
-                        {% if shot.shot_type.value == 'reuse' %}Reused
-                        {% elif shot.shot_type.value == 'bumper' %}Pre-made
-                        {% elif shot.shot_type.value == 'graphic' %}Graphic
-                        {% else %}No image{% endif %}
+
+                {% if is_generatable %}
+                {# ══════════════════════════════════════════════════ #}
+                {# ── IMAGE BOX ────────────────────────────────────  #}
+                {# ══════════════════════════════════════════════════ #}
+                <div class="asset-box image-box"
+                     :class="'asset-' + imgStatus({{ shot.id }})">
+                    <div class="asset-label">
+                        <span class="asset-type-label">IMAGE</span>
+                        <span class="status-badge"
+                              :class="'status-' + imgStatus({{ shot.id }})"
+                              x-text="imgStatus({{ shot.id }})"></span>
                     </div>
-                    {% endif %}
+                    <div class="asset-preview aspect-16-9">
+                        <img x-show="imgSrc({{ shot.id }})"
+                             :src="imgSrc({{ shot.id }})"
+                             alt="Shot {{ shot.number }}" loading="lazy"
+                             style="width:100%;height:100%;object-fit:cover">
+                        <div x-show="!imgSrc({{ shot.id }})" class="placeholder">
+                            <span x-show="imgStatus({{ shot.id }}) === 'generating'"
+                                  class="generating-indicator">Generating...</span>
+                            <span x-show="imgStatus({{ shot.id }}) === 'failed'"
+                                  class="failed-indicator">Generation failed</span>
+                            <span x-show="imgStatus({{ shot.id }}) !== 'generating' && imgStatus({{ shot.id }}) !== 'failed'">
+                                No image
+                            </span>
+                        </div>
+                    </div>
+                    <div class="asset-actions">
+                        <template x-if="imgStatus({{ shot.id }}) === 'pending'">
+                            <button class="btn btn-xs btn-primary"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/image')">
+                                Gen Image
+                            </button>
+                        </template>
+                        <template x-if="imgStatus({{ shot.id }}) === 'generating'">
+                            <span class="generating-indicator">Generating...</span>
+                        </template>
+                        <template x-if="imgStatus({{ shot.id }}) === 'review'">
+                            <div class="action-group">
+                                <button class="btn btn-xs btn-success"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-image')">
+                                    Approve
+                                </button>
+                                <button class="btn btn-xs btn-danger"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-image')">
+                                    Redo
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="imgStatus({{ shot.id }}) === 'approved'">
+                            <span class="approved-indicator">&#10003; Approved</span>
+                        </template>
+                        <template x-if="imgStatus({{ shot.id }}) === 'failed'">
+                            <div class="action-group">
+                                <span class="failed-indicator">Failed</span>
+                                <button class="btn btn-xs btn-primary"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/image')">
+                                    Retry
+                                </button>
+                            </div>
+                        </template>
+
+                        <div class="action-spacer"></div>
+                        <button class="btn btn-xs btn-ghost"
+                                @click.stop="openPopup('/popup/import/shot/{{ shot.id }}?mode=image', 'Import')">
+                            Import
+                        </button>
+                        <button class="btn btn-xs btn-ghost"
+                                @click.stop="openPopup('/popup/preview/shot/{{ shot.id }}?mode=image', 'Preview')">
+                            Preview
+                        </button>
+                    </div>
                 </div>
 
-                <div class="shot-actions">
-                    {% if shot.shot_type.value in ['still', 'veo3_clip', 'title_card'] %}
-                        {% if shot.status.value == 'pending' %}
-                        <button class="btn btn-xs btn-primary"
-                                @click.stop="action('/api/generate/shot/{{ shot.id }}/image')">Gen Image</button>
-                        {% elif shot.status.value == 'review' %}
-                            {% if shot.image_path and not shot.video_path and shot.shot_type.value != 'veo3_clip' %}
-                            <button class="btn btn-xs btn-success"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-image')">Approve</button>
-                            <button class="btn btn-xs btn-danger"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-image')">Redo</button>
-                            {% elif shot.shot_type.value == 'veo3_clip' and shot.image_path and not shot.video_path %}
-                            <button class="btn btn-xs btn-success"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-image')">Approve Frame</button>
-                            <button class="btn btn-xs btn-danger"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-image')">Redo Frame</button>
-                            {% elif shot.video_path %}
-                            <button class="btn btn-xs btn-success"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-video')">Approve Clip</button>
-                            <button class="btn btn-xs btn-danger"
-                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-video')">Redo Clip</button>
-                            {% endif %}
-                        {% elif shot.status.value == 'generating' %}
-                        <span class="generating-indicator">Generating...</span>
-                        {% elif shot.status.value == 'approved' and shot.shot_type.value == 'veo3_clip' and not shot.video_path %}
-                        <button class="btn btn-xs btn-primary"
-                                @click.stop="action('/api/generate/shot/{{ shot.id }}/video')">Gen Clip</button>
-                        {% endif %}
+                {% if is_clip %}
+                {# ══════════════════════════════════════════════════ #}
+                {# ── VIDEO BOX ────────────────────────────────────  #}
+                {# ══════════════════════════════════════════════════ #}
+                <div class="asset-box video-box"
+                     :class="[
+                         'asset-' + vidStatus({{ shot.id }}),
+                         vidStatus({{ shot.id }}) === 'locked' && 'asset-locked'
+                     ]">
+                    <div class="asset-label">
+                        <span class="asset-type-label">VIDEO</span>
+                        <span class="status-badge"
+                              :class="'status-' + vidStatus({{ shot.id }})"
+                              x-text="vidStatus({{ shot.id }}) === 'locked' ? 'awaiting image' : vidStatus({{ shot.id }})"></span>
+                    </div>
+                    <div class="asset-preview aspect-16-9">
+                        <video x-show="vidSrc({{ shot.id }})"
+                               :src="vidSrc({{ shot.id }})"
+                               controls
+                               style="width:100%;height:100%;object-fit:cover"></video>
+                        <div x-show="!vidSrc({{ shot.id }})" class="placeholder">
+                            <span x-show="vidStatus({{ shot.id }}) === 'locked'">Approve image first</span>
+                            <span x-show="vidStatus({{ shot.id }}) === 'generating'"
+                                  class="generating-indicator">Generating...</span>
+                            <span x-show="vidStatus({{ shot.id }}) === 'failed'"
+                                  class="failed-indicator">Generation failed</span>
+                            <span x-show="vidStatus({{ shot.id }}) !== 'locked' && vidStatus({{ shot.id }}) !== 'generating' && vidStatus({{ shot.id }}) !== 'failed'">
+                                No video
+                            </span>
+                        </div>
+                    </div>
+                    <div class="asset-actions">
+                        <template x-if="vidStatus({{ shot.id }}) === 'locked'">
+                            <span class="locked-indicator">&#128274; Locked</span>
+                        </template>
+                        <template x-if="vidStatus({{ shot.id }}) === 'pending'">
+                            <button class="btn btn-xs btn-primary"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/video')">
+                                Gen Clip
+                            </button>
+                        </template>
+                        <template x-if="vidStatus({{ shot.id }}) === 'generating'">
+                            <span class="generating-indicator">Generating...</span>
+                        </template>
+                        <template x-if="vidStatus({{ shot.id }}) === 'review'">
+                            <div class="action-group">
+                                <button class="btn btn-xs btn-success"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-video')">
+                                    Approve
+                                </button>
+                                <button class="btn btn-xs btn-danger"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-video')">
+                                    Redo
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="vidStatus({{ shot.id }}) === 'approved'">
+                            <span class="approved-indicator">&#10003; Approved</span>
+                        </template>
+                        <template x-if="vidStatus({{ shot.id }}) === 'failed'">
+                            <div class="action-group">
+                                <span class="failed-indicator">Failed</span>
+                                <button class="btn btn-xs btn-primary"
+                                        @click.stop="action('/api/generate/shot/{{ shot.id }}/video')">
+                                    Retry
+                                </button>
+                            </div>
+                        </template>
 
-                        <button class="btn btn-xs btn-ghost"
-                                @click.stop="openPopup('/popup/import/shot/{{ shot.id }}', 'Import')"
-                                title="Import from kie.ai or upload file">Import</button>
-                        <button class="btn btn-xs btn-ghost"
-                                @click.stop="openPopup('/popup/preview/shot/{{ shot.id }}', 'Preview')"
-                                title="Preview kie.ai payload">Preview</button>
-                    {% endif %}
+                        <div class="action-spacer"></div>
+                        <template x-if="vidStatus({{ shot.id }}) !== 'locked'">
+                            <div class="action-right">
+                                <button class="btn btn-xs btn-ghost"
+                                        @click.stop="openPopup('/popup/import/shot/{{ shot.id }}?mode=video', 'Import')">
+                                    Import
+                                </button>
+                                <button class="btn btn-xs btn-ghost"
+                                        @click.stop="openPopup('/popup/preview/shot/{{ shot.id }}?mode=video', 'Preview')">
+                                    Preview
+                                </button>
+                            </div>
+                        </template>
+                    </div>
                 </div>
+                {% endif %}
 
+                {% else %}
+                {# ── Non-generatable shots (reuse, bumper, graphic) ── #}
+                <div class="shot-preview-minimal">
+                    <div class="placeholder">
+                        {% if shot.shot_type.value == 'reuse' %}Reused from existing asset
+                        {% elif shot.shot_type.value == 'bumper' %}Pre-made bumper
+                        {% elif shot.shot_type.value == 'graphic' %}Graphic overlay
+                        {% else %}{{ shot.shot_type.value }}{% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {# ── Expandable Details ───────────────────────── #}
                 <div class="shot-details" x-show="expanded" x-collapse>
                     {% if shot.dialogue %}
                     <div class="detail-block"><h4>Dialogue</h4>
@@ -199,11 +328,6 @@
                             {% endfor %}
                         </div></div>
                     {% endif %}
-                    {% if shot.video_path %}
-                    <div class="detail-block"><h4>Video Preview</h4>
-                        <video controls class="video-preview"
-                               src="/assets/{{ shot.video_path|urlencode_path }}"></video></div>
-                    {% endif %}
                 </div>
             </div>
             {% endfor %}
@@ -216,10 +340,11 @@
 
 {% block scripts %}
 <script>
-function episodePage(episodeId) {
+function episodePage(episodeId, initialStatuses) {
     return {
         episodeId,
         status: { stats: null, shots: [], characters: [] },
+        init: initialStatuses,  // {shotId: {image_status, video_status, image_path, video_path}}
         polling: null,
 
         startPolling() {
@@ -233,6 +358,54 @@ function episodePage(episodeId) {
                 if (r.ok) this.status = await r.json();
             } catch (e) { console.error('Poll failed:', e); }
         },
+
+        // ── Data Accessors ───────────────────────────────────
+
+        // Full shot data from polling (or null if not yet polled)
+        shotData(id) {
+            return this.status.shots?.find(s => s.id === id) || null;
+        },
+
+        // Image status: polled > initial > pending
+        imgStatus(id) {
+            const s = this.shotData(id);
+            if (s) return s.image_status;
+            return this.init[id]?.image_status || 'pending';
+        },
+
+        // Video status: polled > initial > locked
+        vidStatus(id) {
+            const s = this.shotData(id);
+            if (s) return s.video_status;
+            return this.init[id]?.video_status || 'locked';
+        },
+
+        // Image src URL: polled path > initial path > null
+        imgSrc(id) {
+            const s = this.shotData(id);
+            const path = s?.image_path || this.init[id]?.image_path;
+            return path ? '/assets/' + path : null;
+        },
+
+        // Video src URL: polled path > initial path > null
+        vidSrc(id) {
+            const s = this.shotData(id);
+            const path = s?.video_path || this.init[id]?.video_path;
+            return path ? '/assets/' + path : null;
+        },
+
+        // Overall shot border color
+        shotBorderClass(id) {
+            const s = this.shotData(id);
+            return s ? 'shot-' + s.status : '';
+        },
+
+        charStatus(id) {
+            const c = this.status.characters?.find(c => c.id === id);
+            return c ? 'char-' + c.status : '';
+        },
+
+        // ── Actions ──────────────────────────────────────────
 
         async action(url) {
             try {
@@ -262,9 +435,6 @@ function episodePage(episodeId) {
                 `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
         },
 
-        shotStatus(id) { const s = this.status.shots?.find(s => s.id === id); return s?.status; },
-        shotClass(id) { const s = this.status.shots?.find(s => s.id === id); return s ? 'shot-' + s.status : ''; },
-        charStatus(id) { const c = this.status.characters?.find(c => c.id === id); return c ? 'char-' + c.status : ''; },
         destroy() { if (this.polling) clearInterval(this.polling); }
     };
 }
