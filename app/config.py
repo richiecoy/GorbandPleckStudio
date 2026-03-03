@@ -8,10 +8,10 @@ class Settings(BaseSettings):
     kie_upload_base: str = "https://kieai.redpandaai.co"
 
     app_host: str = "0.0.0.0"
-    app_port: int = 8420
-    database_url: str = "sqlite+aiosqlite:///./data/studio.db"
+    app_port: int = 8499
+    database_url: str = "sqlite+aiosqlite:////data/studio.db"
 
-    asset_dir: str = "/app/assets"
+    asset_dir: str = "/episodes"
     callback_base_url: str = ""
     poll_interval: int = 15
 
