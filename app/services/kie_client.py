@@ -144,47 +144,37 @@ class KieClient:
         async with self._client() as client:
             try:
                 resp = await client.get(
-                    f"{self.base}/api/v1/jobs/record-info",
+                    f"{self.base}/api/v1/jobs/recordInfo",
                     params={"taskId": task_id},
                 )
                 data = resp.json()
 
                 if data.get("code") == 200:
                     task_data = data.get("data", {})
-                    info = task_data.get("info", {})
-                    status_val = task_data.get("status", "")
+                    state = task_data.get("state", "")
 
-                    logger.debug(
-                        f"Image poll {task_id}: status={status_val}, "
-                        f"info_keys={list(info.keys()) if info else 'none'}"
-                    )
+                    logger.info(f"Image poll {task_id}: state={state}")
 
-                    # Map kie.ai statuses to our simplified model
-                    if status_val in ("success", "completed"):
-                        urls = info.get("images") or info.get("resultUrls") or []
-                        if isinstance(urls, str):
-                            urls = [urls]
-                        # Also check for nested image URLs
-                        if not urls and isinstance(info.get("output"), list):
-                            urls = info["output"]
+                    if state == "success":
+                        urls = _parse_result_urls(task_data.get("resultJson", ""))
                         logger.info(f"Image poll {task_id}: SUCCESS, {len(urls)} URLs")
                         return TaskStatus(
                             task_id=task_id, status="success", result_urls=urls
                         )
-                    elif status_val in ("failed", "error"):
-                        err_msg = info.get("errorMessage") or info.get("error") or "Generation failed"
+                    elif state == "fail":
+                        err_msg = task_data.get("failMsg") or "Generation failed"
                         logger.info(f"Image poll {task_id}: FAILED - {err_msg}")
                         return TaskStatus(
-                            task_id=task_id, status="failed",
-                            error=err_msg
+                            task_id=task_id, status="failed", error=err_msg
                         )
                     else:
+                        # waiting, queuing, generating
                         return TaskStatus(task_id=task_id, status="processing")
 
                 logger.warning(f"Image status unexpected response: {data}")
                 return TaskStatus(
                     task_id=task_id, status="poll_error",
-                    error=data.get("msg", "Unexpected API response")
+                    error=data.get("message", "Unexpected API response")
                 )
             except Exception as e:
                 logger.error(f"Image status poll error: {e}")
@@ -241,7 +231,13 @@ class KieClient:
                 return TaskResult(task_id="", success=False, error=str(e))
 
     async def get_video_status(self, task_id: str) -> TaskStatus:
-        """Poll video generation task status."""
+        """Poll video generation task status.
+        
+        Video uses a different endpoint and response format than images:
+        - Endpoint: /api/v1/veo/record-info
+        - Status: successFlag (0=generating, 1=success, 2=failed, 3=gen failed)
+        - Results: resultUrls (JSON string)
+        """
         async with self._client() as client:
             try:
                 resp = await client.get(
@@ -252,40 +248,32 @@ class KieClient:
 
                 if data.get("code") == 200:
                     task_data = data.get("data", {})
-                    info = task_data.get("info", {})
-                    status_val = task_data.get("status", "")
+                    flag = task_data.get("successFlag")
 
-                    logger.debug(
-                        f"Video poll {task_id}: status={status_val}, "
-                        f"info_keys={list(info.keys()) if info else 'none'}"
-                    )
+                    logger.info(f"Video poll {task_id}: successFlag={flag}")
 
-                    if status_val in ("success", "completed"):
-                        urls = info.get("resultUrls") or []
-                        if isinstance(urls, str):
-                            import json as _json
-                            try:
-                                urls = _json.loads(urls)
-                            except Exception:
-                                urls = [urls]
+                    if flag == 1:
+                        # Success — parse resultUrls JSON string
+                        raw_urls = task_data.get("resultUrls", "")
+                        urls = _parse_json_string_urls(raw_urls)
                         logger.info(f"Video poll {task_id}: SUCCESS, {len(urls)} URLs")
                         return TaskStatus(
                             task_id=task_id, status="success", result_urls=urls
                         )
-                    elif status_val in ("failed", "error"):
-                        err_msg = info.get("errorMessage") or info.get("error") or "Generation failed"
-                        logger.info(f"Video poll {task_id}: FAILED - {err_msg}")
+                    elif flag in (2, 3):
+                        err_msg = data.get("msg") or task_data.get("failMsg") or "Video generation failed"
+                        logger.info(f"Video poll {task_id}: FAILED (flag={flag}) - {err_msg}")
                         return TaskStatus(
-                            task_id=task_id, status="failed",
-                            error=err_msg
+                            task_id=task_id, status="failed", error=err_msg
                         )
                     else:
+                        # flag == 0 or None — still generating
                         return TaskStatus(task_id=task_id, status="processing")
 
                 logger.warning(f"Video status unexpected response: {data}")
                 return TaskStatus(
                     task_id=task_id, status="poll_error",
-                    error=data.get("msg", "Unexpected API response")
+                    error=data.get("message", "Unexpected API response")
                 )
             except Exception as e:
                 logger.error(f"Video status poll error: {e}")
@@ -311,6 +299,48 @@ class KieClient:
             except Exception as e:
                 logger.error(f"Download error: {e}")
                 return False
+
+
+def _parse_json_string_urls(raw: str) -> list[str]:
+    """Parse a JSON string that is either a raw array or a single URL.
+    
+    Video resultUrls comes as: '["https://..."]' (JSON array string)
+    """
+    if not raw:
+        return []
+    try:
+        import json
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, str):
+            return [parsed]
+        return []
+    except Exception as e:
+        # Maybe it's already a plain URL string
+        if raw.startswith("http"):
+            return [raw]
+        logger.error(f"Failed to parse URL string: {e} — raw: {raw[:200]}")
+        return []
+
+
+def _parse_result_urls(result_json: str) -> list[str]:
+    """Parse the resultJson string from kie.ai into a list of URLs.
+    
+    resultJson is a JSON string like: '{"resultUrls":["https://..."]}'
+    """
+    if not result_json:
+        return []
+    try:
+        import json
+        parsed = json.loads(result_json)
+        urls = parsed.get("resultUrls") or []
+        if isinstance(urls, str):
+            urls = [urls]
+        return urls
+    except Exception as e:
+        logger.error(f"Failed to parse resultJson: {e} — raw: {result_json[:200]}")
+        return []
 
 
 def _mime_type(path: Path) -> str:
