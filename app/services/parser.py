@@ -135,31 +135,116 @@ def _parse_shots(markdown: str) -> list[ParsedShot]:
         # Now find individual shots within this section
         shot_blocks = re.split(r'\n### ', section)
         for block in shot_blocks[1:]:
-            shot = _parse_single_shot(block, current_segment)
-            if shot:
-                shots.append(shot)
+            parsed = _parse_single_shot(block, current_segment)
+            shots.extend(parsed)
 
     return shots
 
 
-def _parse_single_shot(block: str, segment: str) -> ParsedShot | None:
-    """Parse a single shot block into a ParsedShot."""
+def _parse_single_shot(block: str, segment: str) -> list[ParsedShot]:
+    """Parse a shot block into one or more ParsedShots (handles ranges like 'Shots 6-9')."""
     lines = block.strip().split('\n')
     header = lines[0].strip()
 
-    # Extract shot number and name
+    # Extract shot number (and optional end number) and name
     # Formats: "Shot 1: Location Reveal", "Shots 6-9: Evidence Stills",
     #          "Shot 31: Probe Rating Reveal"
-    shot_match = re.match(r'Shots?\s+(\d+)(?:-\d+)?[:\s]*(.+)?', header)
+    shot_match = re.match(r'Shots?\s+(\d+)(?:-(\d+))?[:\s]*(.+)?', header)
     if not shot_match:
-        return None
+        return []
 
-    number = int(shot_match.group(1))
-    name = shot_match.group(2).strip() if shot_match.group(2) else f"Shot {number}"
+    start_num = int(shot_match.group(1))
+    end_num = int(shot_match.group(2)) if shot_match.group(2) else None
+    group_name = shot_match.group(3).strip() if shot_match.group(3) else f"Shot {start_num}"
 
     full_text = '\n'.join(lines[1:])
 
-    # Determine shot type
+    # If it's a range, try to split into individual sub-shots
+    if end_num and end_num > start_num:
+        sub_shots = _expand_shot_range(start_num, end_num, group_name, full_text, segment)
+        if sub_shots:
+            return sub_shots
+
+    # Single shot (or range that couldn't be split — treat as one)
+    return [_build_shot(start_num, group_name, full_text, segment)]
+
+
+def _expand_shot_range(start: int, end: int, group_name: str,
+                       full_text: str, segment: str) -> list[ParsedShot]:
+    """Expand a shot range (e.g. Shots 6-9) into individual ParsedShots.
+
+    Looks for sub-shot markers like:
+      **Still N — Name:**  (evidence stills with individual prompts)
+      - Shot N: Description  (reuse lists)
+    """
+    shots = []
+
+    # Pattern 1: Individual stills with their own code blocks
+    # e.g. **Still 7 — Gorb at the Captain's Table, holding court:**
+    still_pattern = re.compile(
+        r'\*\*Still\s+(\d+)\s*[—\-]\s*(.+?):\*\*',
+        re.IGNORECASE,
+    )
+    still_matches = list(still_pattern.finditer(full_text))
+
+    if still_matches:
+        # Split the text at each still marker to get individual blocks
+        for i, m in enumerate(still_matches):
+            num = int(m.group(1))
+            sub_name = m.group(2).strip()
+            # Get the text from this marker to the next (or end)
+            block_start = m.start()
+            block_end = still_matches[i + 1].start() if i + 1 < len(still_matches) else len(full_text)
+            sub_text = full_text[block_start:block_end]
+
+            # Extract the code block (nano prompt) from this sub-section
+            code_match = re.search(r'```\s*\n(.+?)\n```', sub_text, re.DOTALL)
+            nano_prompt = code_match.group(1).strip() if code_match else ""
+
+            # Extract direction notes (blockquotes) from this sub-section
+            direction = '\n'.join(
+                line.lstrip('> ').strip()
+                for line in sub_text.split('\n')
+                if line.strip().startswith('>')
+            )
+
+            shots.append(ParsedShot(
+                number=num,
+                name=sub_name,
+                segment=segment,
+                shot_type="still",
+                nano_prompt=nano_prompt,
+                direction_notes=direction,
+            ))
+        return shots
+
+    # Pattern 2: Reuse list items
+    # e.g. - Shot 23: Reuse Still 7 — Gorb at the Captain's Table
+    reuse_pattern = re.compile(
+        r'^-\s+Shot\s+(\d+):\s*(.+)',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    reuse_matches = list(reuse_pattern.finditer(full_text))
+
+    if reuse_matches:
+        shot_type = _detect_shot_type(full_text, group_name)
+        for m in reuse_matches:
+            num = int(m.group(1))
+            sub_name = m.group(2).strip()
+            shots.append(ParsedShot(
+                number=num,
+                name=sub_name,
+                segment=segment,
+                shot_type=shot_type,
+            ))
+        return shots
+
+    # Fallback: create individual shots for each number in range, all sharing the same prompt
+    return []
+
+
+def _build_shot(number: int, name: str, full_text: str, segment: str) -> ParsedShot:
+    """Build a single ParsedShot from block text."""
     shot_type = _detect_shot_type(full_text, name)
 
     # Extract code blocks (prompts)
@@ -170,7 +255,6 @@ def _parse_single_shot(block: str, segment: str) -> ParsedShot | None:
 
     # Assign prompts based on context
     for i, cb in enumerate(code_blocks):
-        # Look at the text before this code block for context
         before = full_text[:full_text.find(cb)]
         if 'veo3 prompt' in before.lower() or 'veo 3 prompt' in before.lower():
             veo3_prompt = cb.strip()
@@ -180,23 +264,19 @@ def _parse_single_shot(block: str, segment: str) -> ParsedShot | None:
             elif not veo3_prompt:
                 veo3_prompt = cb.strip()
         else:
-            # First unassigned goes to nano, second to veo3
             if not nano_prompt:
                 nano_prompt = cb.strip()
             elif not veo3_prompt:
                 veo3_prompt = cb.strip()
 
-    # Extract dialogue
     dialogue = _extract_dialogue(full_text)
 
-    # Extract direction notes (blockquotes)
     direction = '\n'.join(
         line.lstrip('> ').strip()
         for line in full_text.split('\n')
         if line.strip().startswith('>')
     )
 
-    # Extract duration
     duration = ""
     dur_match = re.search(r'\*\*Duration:\*\*\s*(.+)', full_text)
     if dur_match:
@@ -206,13 +286,11 @@ def _parse_single_shot(block: str, segment: str) -> ParsedShot | None:
         if dur_match:
             duration = dur_match.group(1).strip()
 
-    # Extract camera notes
     camera = ""
     cam_match = re.search(r'\*\*Camera:\*\*\s*(.+)', full_text)
     if cam_match:
         camera = cam_match.group(1).strip()
 
-    # Detect character references
     char_refs = _detect_character_refs(nano_prompt + " " + veo3_prompt + " " + full_text)
 
     return ParsedShot(
