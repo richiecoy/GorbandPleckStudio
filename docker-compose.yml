@@ -1,0 +1,19 @@
+services:
+  studio:
+    build: .
+    image: gorb-pleck-studio:latest
+    container_name: gp-studio
+    ports:
+      - "8420:8420"
+    volumes:
+      # Persist database
+      - studio-data:/app/data
+      # Mount your episode assets directory
+      # Adjust the host path to match your TrueNAS dataset
+      - ./assets:/app/assets
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  studio-data:

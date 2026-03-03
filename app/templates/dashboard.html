@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Episodes</h1>
+</div>
+
+<!-- Episode Grid -->
+<div class="episode-grid">
+    {% for ep in episodes %}
+    <a href="/episodes/{{ ep.id }}" class="episode-card">
+        <div class="ep-number">EP{{ '%02d' % ep.number }}</div>
+        <div class="ep-title">{{ ep.title }}</div>
+        {% if ep.location %}
+        <div class="ep-location">{{ ep.location }}</div>
+        {% endif %}
+
+        {% set stats = ep.stats %}
+        <div class="ep-stats">
+            <div class="stat-bar">
+                {% if stats.total > 0 %}
+                <div class="bar-fill bar-approved" style="width: {{ (stats.approved / stats.total * 100)|int }}%"></div>
+                <div class="bar-fill bar-review" style="width: {{ (stats.review / stats.total * 100)|int }}%"></div>
+                <div class="bar-fill bar-generating" style="width: {{ (stats.generating / stats.total * 100)|int }}%"></div>
+                {% endif %}
+            </div>
+            <div class="stat-counts">
+                <span class="count-approved">{{ stats.approved }}</span> /
+                <span>{{ stats.total }} shots</span>
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+
+    <!-- New Episode Card -->
+    <div class="episode-card new-episode" x-data="{ open: false }">
+        <template x-if="!open">
+            <button @click="open = true" class="new-ep-trigger">
+                <span class="plus">+</span>
+                <span>New Episode</span>
+            </button>
+        </template>
+
+        <template x-if="open">
+            <form action="/episodes/create" method="POST" enctype="multipart/form-data" class="new-ep-form">
+                <div class="form-group">
+                    <label>Episode #</label>
+                    <input type="number" name="number" required min="1"
+                           value="{{ (episodes|length) + 1 }}" class="input-sm">
+                </div>
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" name="title" required placeholder="Episode title" class="input-sm">
+                </div>
+                <div class="form-group">
+                    <label>Visual Plan (optional)</label>
+                    <input type="file" name="visual_plan" accept=".md,.txt" class="input-file">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Create</button>
+                    <button type="button" @click="open = false" class="btn btn-ghost">Cancel</button>
+                </div>
+            </form>
+        </template>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}EP{{ '%02d' % episode.number }}: {{ episode.title }}{% endblock %}
+
+{% block content %}
+<div x-data="episodePage({{ episode.id }})" x-init="startPolling()">
+
+    <!-- Header -->
+    <div class="page-header">
+        <div class="header-left">
+            <a href="/" class="back-link">← Episodes</a>
+            <h1>
+                <span class="ep-badge">EP{{ '%02d' % episode.number }}</span>
+                {{ episode.title }}
+            </h1>
+            {% if episode.location %}
+            <p class="subtitle">{{ episode.location }}</p>
+            {% endif %}
+        </div>
+        <div class="header-actions">
+            {% if not episode.parsed_at %}
+            <form action="/episodes/{{ episode.id }}/upload-plan" method="POST" enctype="multipart/form-data"
+                  class="inline-form">
+                <input type="file" name="visual_plan" accept=".md,.txt" required class="input-file">
+                <button type="submit" class="btn btn-primary">Upload & Parse</button>
+            </form>
+            {% else %}
+            <form action="/episodes/{{ episode.id }}/upload-plan" method="POST" enctype="multipart/form-data"
+                  class="inline-form">
+                <input type="file" name="visual_plan" accept=".md,.txt" required class="input-file">
+                <button type="submit" class="btn btn-ghost">Re-parse Plan</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Stats Bar -->
+    {% set stats = episode.stats %}
+    <div class="stats-strip">
+        <div class="stat-item">
+            <span class="stat-val">{{ stats.total }}</span>
+            <span class="stat-label">Total</span>
+        </div>
+        <div class="stat-item stat-pending">
+            <span class="stat-val" x-text="status.stats?.pending ?? {{ stats.pending }}">{{ stats.pending }}</span>
+            <span class="stat-label">Pending</span>
+        </div>
+        <div class="stat-item stat-generating">
+            <span class="stat-val" x-text="status.stats?.generating ?? {{ stats.generating }}">{{ stats.generating }}</span>
+            <span class="stat-label">Generating</span>
+        </div>
+        <div class="stat-item stat-review">
+            <span class="stat-val" x-text="status.stats?.review ?? {{ stats.review }}">{{ stats.review }}</span>
+            <span class="stat-label">Review</span>
+        </div>
+        <div class="stat-item stat-approved">
+            <span class="stat-val" x-text="status.stats?.approved ?? {{ stats.approved }}">{{ stats.approved }}</span>
+            <span class="stat-label">Approved</span>
+        </div>
+    </div>
+
+    <!-- Characters Panel -->
+    {% if episode.characters %}
+    <section class="panel">
+        <div class="panel-header">
+            <h2>Characters</h2>
+            <button class="btn btn-sm btn-primary"
+                    @click="batchAction('/api/generate/episode/{{ episode.id }}/generate-all-characters')">
+                Generate All Pending
+            </button>
+        </div>
+        <div class="character-grid">
+            {% for char in episode.characters %}
+            <div class="char-card" :class="charStatus({{ char.id }})">
+                <div class="char-preview">
+                    {% if char.reference_image_path %}
+                    <img src="/assets/{{ char.reference_image_path | replace(config.asset_dir ~ '/', '') }}"
+                         alt="{{ char.name }}" loading="lazy">
+                    {% else %}
+                    <div class="placeholder">No image</div>
+                    {% endif %}
+                </div>
+                <div class="char-info">
+                    <h3>{{ char.name }}{% if char.is_main %} <span class="badge badge-main">Main</span>{% endif %}</h3>
+                    <span class="status-badge status-{{ char.status.value }}">{{ char.status.value }}</span>
+                </div>
+                <div class="char-actions">
+                    {% if char.status.value == 'pending' and not char.is_main %}
+                    <button class="btn btn-xs btn-primary"
+                            @click="action('/api/generate/character/{{ char.id }}')">
+                        Generate
+                    </button>
+                    {% elif char.status.value == 'review' %}
+                    <button class="btn btn-xs btn-success"
+                            @click="action('/api/generate/character/{{ char.id }}/approve')">
+                        ✓ Approve
+                    </button>
+                    <button class="btn btn-xs btn-danger"
+                            @click="action('/api/generate/character/{{ char.id }}/reject')">
+                        ✗ Redo
+                    </button>
+                    {% elif char.status.value == 'generating' %}
+                    <span class="generating-indicator">⟳ Generating...</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- Batch Actions -->
+    <div class="batch-bar">
+        <button class="btn btn-primary"
+                @click="batchAction('/api/generate/episode/{{ episode.id }}/generate-all-images')">
+            Generate All Pending Images
+        </button>
+    </div>
+
+    <!-- Shot Grid by Segment -->
+    {% for segment_name, shots in segments.items() %}
+    <section class="panel segment-panel">
+        <div class="panel-header">
+            <h2>{{ segment_name }}</h2>
+            <span class="shot-count">{{ shots|length }} shots</span>
+        </div>
+
+        <div class="shot-grid">
+            {% for shot in shots %}
+            <div class="shot-card" :class="shotClass({{ shot.id }})"
+                 x-data="{ expanded: false }">
+
+                <!-- Shot Header -->
+                <div class="shot-header" @click="expanded = !expanded">
+                    <div class="shot-id">
+                        <span class="shot-num">#{{ shot.number }}</span>
+                        <span class="shot-type-badge type-{{ shot.shot_type.value }}">
+                            {{ shot.shot_type.value | replace('_', ' ') }}
+                        </span>
+                    </div>
+                    <div class="shot-name">{{ shot.name }}</div>
+                    <span class="status-badge status-{{ shot.status.value }}"
+                          :class="'status-' + (shotData({{ shot.id }})?.status ?? '{{ shot.status.value }}')">
+                        <span x-text="shotData({{ shot.id }})?.status ?? '{{ shot.status.value }}'">
+                            {{ shot.status.value }}
+                        </span>
+                    </span>
+                </div>
+
+                <!-- Preview -->
+                <div class="shot-preview">
+                    {% if shot.image_path %}
+                    <img src="/assets/{{ shot.image_path | replace('/app/assets/', '') }}"
+                         alt="Shot {{ shot.number }}" loading="lazy">
+                    {% else %}
+                    <div class="placeholder">
+                        {% if shot.shot_type.value == 'reuse' %}Reused{% elif shot.shot_type.value == 'bumper' %}Pre-made{% elif shot.shot_type.value == 'graphic' %}Graphic{% else %}No image{% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Actions (always visible) -->
+                <div class="shot-actions">
+                    {% if shot.shot_type.value in ['still', 'veo3_clip', 'title_card'] %}
+                        {% if shot.status.value == 'pending' %}
+                        <button class="btn btn-xs btn-primary"
+                                @click.stop="action('/api/generate/shot/{{ shot.id }}/image')">
+                            🎨 Gen Image
+                        </button>
+                        {% elif shot.status.value == 'review' %}
+                            {% if shot.image_path and not shot.video_path and shot.shot_type.value != 'veo3_clip' %}
+                            <button class="btn btn-xs btn-success"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-image')">
+                                ✓ Approve
+                            </button>
+                            <button class="btn btn-xs btn-danger"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-image')">
+                                ✗ Redo
+                            </button>
+                            {% elif shot.shot_type.value == 'veo3_clip' and shot.image_path and not shot.video_path %}
+                            <button class="btn btn-xs btn-success"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-image')">
+                                ✓ Approve Frame
+                            </button>
+                            <button class="btn btn-xs btn-danger"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-image')">
+                                ✗ Redo Frame
+                            </button>
+                            {% elif shot.video_path %}
+                            <button class="btn btn-xs btn-success"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/approve-video')">
+                                ✓ Approve Clip
+                            </button>
+                            <button class="btn btn-xs btn-danger"
+                                    @click.stop="action('/api/generate/shot/{{ shot.id }}/reject-video')">
+                                ✗ Redo Clip
+                            </button>
+                            {% endif %}
+                        {% elif shot.status.value == 'generating' %}
+                        <span class="generating-indicator">⟳ Generating...</span>
+                        {% elif shot.status.value == 'approved' and shot.shot_type.value == 'veo3_clip' and not shot.video_path %}
+                        <!-- Image approved, ready for video gen -->
+                        <button class="btn btn-xs btn-primary"
+                                @click.stop="action('/api/generate/shot/{{ shot.id }}/video')">
+                            🎬 Gen Clip
+                        </button>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+                <!-- Expanded Details -->
+                <div class="shot-details" x-show="expanded" x-collapse>
+                    {% if shot.dialogue %}
+                    <div class="detail-block">
+                        <h4>Dialogue</h4>
+                        <p class="dialogue-text">{{ shot.dialogue }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if shot.direction_notes %}
+                    <div class="detail-block">
+                        <h4>Direction</h4>
+                        <p class="notes-text">{{ shot.direction_notes }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if shot.nano_prompt %}
+                    <div class="detail-block">
+                        <h4>Nano Banana Prompt</h4>
+                        <pre class="prompt-text">{{ shot.nano_prompt }}</pre>
+                    </div>
+                    {% endif %}
+
+                    {% if shot.veo3_prompt %}
+                    <div class="detail-block">
+                        <h4>Veo3 Prompt</h4>
+                        <pre class="prompt-text">{{ shot.veo3_prompt }}</pre>
+                    </div>
+                    {% endif %}
+
+                    {% if shot.character_refs %}
+                    <div class="detail-block">
+                        <h4>Characters</h4>
+                        <div class="ref-tags">
+                            {% for ref in shot.character_refs %}
+                            <span class="ref-tag">{{ ref }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if shot.video_path %}
+                    <div class="detail-block">
+                        <h4>Video Preview</h4>
+                        <video controls class="video-preview"
+                               src="/assets/{{ shot.video_path | replace('/app/assets/', '') }}">
+                        </video>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function episodePage(episodeId) {
+    return {
+        episodeId: episodeId,
+        status: { stats: null, shots: [], characters: [] },
+        polling: null,
+
+        startPolling() {
+            this.fetchStatus();
+            this.polling = setInterval(() => this.fetchStatus(), 5000);
+        },
+
+        async fetchStatus() {
+            try {
+                const resp = await fetch(`/api/status/episode/${this.episodeId}`);
+                if (resp.ok) {
+                    this.status = await resp.json();
+                }
+            } catch (e) {
+                console.error('Status poll failed:', e);
+            }
+        },
+
+        async action(url) {
+            try {
+                const resp = await fetch(url, { method: 'POST' });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    alert(data.detail || 'Action failed');
+                }
+                // Refresh status immediately
+                setTimeout(() => this.fetchStatus(), 500);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+            }
+        },
+
+        async batchAction(url) {
+            try {
+                const resp = await fetch(url, { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert(`Started ${data.tasks_started} tasks`);
+                } else {
+                    alert(data.detail || 'Batch action failed');
+                }
+                setTimeout(() => this.fetchStatus(), 1000);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+            }
+        },
+
+        shotData(shotId) {
+            return this.status.shots?.find(s => s.id === shotId);
+        },
+
+        shotClass(shotId) {
+            const s = this.shotData(shotId);
+            return s ? `shot-${s.status}` : '';
+        },
+
+        charStatus(charId) {
+            const c = this.status.characters?.find(c => c.id === charId);
+            return c ? `char-${c.status}` : '';
+        },
+
+        destroy() {
+            if (this.polling) clearInterval(this.polling);
+        }
+    };
+}
+</script>
+{% endblock %}

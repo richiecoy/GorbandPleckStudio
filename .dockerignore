@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+*.db
+data/
+assets/
+.git/
+.github/
+.venv/
+venv/
+README.md
