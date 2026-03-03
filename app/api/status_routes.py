@@ -125,10 +125,6 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
 
     characters = []
     for c in episode.characters:
-        logger.info(
-            f"POLL char {c.id} ({c.name}): ref_img_path={c.reference_image_path!r}, "
-            f"status={c.status.value}"
-        )
         characters.append({
             "id": c.id,
             "status": c.status.value,
@@ -138,74 +134,8 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
         })
 
     return {
-        "_api_version": "v9-2026-03-03",
         "stats": stats,
         "shots": shots,
         "characters": characters,
-    }
-
-
-@router.get("/episode/{episode_id}/debug")
-async def episode_debug(episode_id: int, db: AsyncSession = Depends(get_db)):
-    """Debug endpoint: dump shot inventory to diagnose stats mismatch."""
-    result = await db.execute(
-        select(Episode)
-        .where(Episode.id == episode_id)
-        .options(
-            selectinload(Episode.shots),
-            selectinload(Episode.characters),
-        )
-    )
-    episode = result.scalar_one_or_none()
-    if not episode:
-        raise HTTPException(status_code=404)
-
-    from collections import Counter
-    type_counts = Counter()
-    shots_detail = []
-    for s in episode.shots:
-        type_counts[s.shot_type.value] += 1
-        img_st, vid_st = _derive_asset_statuses(s)
-        shots_detail.append({
-            "id": s.id,
-            "number": s.number,
-            "name": s.name,
-            "segment": s.segment,
-            "shot_type": s.shot_type.value,
-            "status": s.status.value,
-            "image_status": img_st,
-            "video_status": vid_st,
-            "has_image": bool(s.image_path),
-            "has_video": bool(s.video_path),
-        })
-
-    chars_detail = []
-    for c in episode.characters:
-        chars_detail.append({
-            "id": c.id,
-            "name": c.name,
-            "is_main": c.is_main,
-            "status": c.status.value,
-            "has_image": bool(c.reference_image_path),
-        })
-
-    # Compute expected total
-    gen_types = {"still", "veo3_clip", "title_card"}
-    img_count = sum(1 for s in episode.shots if s.shot_type.value in gen_types)
-    vid_count = sum(1 for s in episode.shots if s.shot_type.value == "veo3_clip")
-    char_count = sum(1 for c in episode.characters if not c.is_main)
-
-    return {
-        "total_shots_in_db": len(episode.shots),
-        "total_characters_in_db": len(episode.characters),
-        "type_counts": dict(type_counts),
-        "expected_stats": {
-            "images": img_count,
-            "videos": vid_count,
-            "characters": char_count,
-            "total": img_count + vid_count + char_count,
-        },
-        "shots": shots_detail,
-        "characters": chars_detail,
     }
 

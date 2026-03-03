@@ -3,8 +3,6 @@
 
 {% block content %}
 <script>
-window.__STUDIO_VERSION = "v9-2026-03-03";
-console.log('[STUDIO] template version:', window.__STUDIO_VERSION);
 window.__shotStatuses = {{ shot_statuses | tojson }};
 window.__charStatuses = {{ char_statuses | tojson }};
 </script>
@@ -514,22 +512,14 @@ function _assetUrl(path) {
 // Compute stats from frontend state (includes characters + file-existence overrides)
 function _computeStats(ss, cs, genTypes) {
     const st = { total: 0, pending: 0, generating: 0, review: 0, approved: 0 };
-    // DEBUG: count shots by type and what gets counted
-    const dbg = { totalShots: Object.keys(ss).length, byType: {}, imgCounted: 0, vidCounted: 0, charCounted: 0, skipped: [] };
-    for (const [id, s] of Object.entries(ss)) {
-        dbg.byType[s.stype] = (dbg.byType[s.stype] || 0) + 1;
-        if (!genTypes.includes(s.stype)) {
-            dbg.skipped.push({ id, stype: s.stype });
-            continue;
-        }
+    for (const s of Object.values(ss)) {
+        if (!genTypes.includes(s.stype)) continue;
         // Count image asset
         st.total++;
-        dbg.imgCounted++;
         if (st[s.img] !== undefined) st[s.img]++;
         // Count video asset only for veo3 clips
         if (s.stype === 'veo3_clip') {
             st.total++;
-            dbg.vidCounted++;
             const b = (!s.vid || s.vid === 'locked' || s.vid === 'n/a') ? 'pending' : s.vid;
             if (st[b] !== undefined) st[b]++;
         }
@@ -537,22 +527,10 @@ function _computeStats(ss, cs, genTypes) {
     // Count non-main character assets (main chars have manually uploaded refs)
     for (const c of Object.values(cs)) {
         if (c.is_main) continue;
-        // If character has an image, treat as approved regardless of backend status
         const status = c.imgUrl ? 'approved' : c.status;
         st.total++;
-        dbg.charCounted++;
         if (st[status] !== undefined) st[status]++;
     }
-    console.log('[STATS DEBUG]', JSON.stringify({
-        result: st,
-        totalShotsInMap: dbg.totalShots,
-        shotsByType: dbg.byType,
-        imagesCounted: dbg.imgCounted,
-        videosCounted: dbg.vidCounted,
-        charsCounted: dbg.charCounted,
-        skippedShots: dbg.skipped.length,
-        formula: `${dbg.imgCounted} imgs + ${dbg.vidCounted} vids + ${dbg.charCounted} chars = ${st.total}`,
-    }, null, 2));
     return st;
 }
 </script>
