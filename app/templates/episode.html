@@ -3,6 +3,8 @@
 
 {% block content %}
 <script>
+window.__STUDIO_VERSION = "v9-2026-03-03";
+console.log('[STUDIO] template version:', window.__STUDIO_VERSION);
 window.__shotStatuses = {{ shot_statuses | tojson }};
 window.__charStatuses = {{ char_statuses | tojson }};
 </script>

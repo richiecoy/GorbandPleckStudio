@@ -138,6 +138,7 @@ async def episode_status(episode_id: int, db: AsyncSession = Depends(get_db)):
         })
 
     return {
+        "_api_version": "v9-2026-03-03",
         "stats": stats,
         "shots": shots,
         "characters": characters,
