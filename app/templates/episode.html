@@ -282,7 +282,7 @@
                 {% endif %}
 
                 {# ── Expandable Details ───────────────────────── #}
-                <div class="shot-details" x-show="expanded[{{ sid }}]" x-collapse>
+                <div class="shot-details" x-show="expanded[{{ sid }}]" x-transition
                     {% if shot.dialogue %}
                     <div class="detail-block"><h4>Dialogue</h4>
                         <p class="dialogue-text">{{ shot.dialogue }}</p></div>
@@ -350,16 +350,25 @@ function episodePage(episodeId) {
         async poll() {
             try {
                 const r = await fetch('/api/status/episode/' + this.episodeId);
-                if (!r.ok) { console.error('Poll HTTP error:', r.status); return; }
+                if (!r.ok) {
+                    console.error('[STUDIO POLL] HTTP error:', r.status, await r.text().catch(() => ''));
+                    return;
+                }
                 const data = await r.json();
+
+                // Debug: log summary of poll results
+                const genShots = (data.shots || []).filter(s =>
+                    s.status !== 'pending' && s.status !== 'approved'
+                );
+                if (genShots.length > 0) {
+                    console.log('[STUDIO POLL] Active shots:', genShots.map(s =>
+                        `#${s.id}(status=${s.status}, img=${s.image_status}, vid=${s.video_status}, path=${s.image_path})`
+                    ));
+                }
 
                 // Rebuild ss from poll data — single reactive assignment
                 const next = {};
                 for (const s of (data.shots || [])) {
-                    // Debug: log any shot that has generating status or a generation in progress
-                    if (s.status === 'generating' || s.image_status === 'generating' || s.video_status === 'generating') {
-                        console.log('POLL shot', s.id, '→ status:', s.status, 'img:', s.image_status, 'vid:', s.video_status, 'path:', s.image_path);
-                    }
                     next[s.id] = {
                         img: s.image_status,
                         vid: s.video_status,
@@ -389,27 +398,32 @@ function episodePage(episodeId) {
 
         // Actions
         async action(url) {
+            console.log('[STUDIO ACTION]', url);
+
             // Optimistic UI: immediately show "generating" state
             const genMatch = url.match(/\/shot\/(\d+)\/(image|video)$/);
             if (genMatch) {
                 const sid = parseInt(genMatch[1]);
                 const field = genMatch[2] === 'video' ? 'vid' : 'img';
+                console.log('[STUDIO ACTION] optimistic update: shot', sid, field, '→ generating');
                 if (this.ss[sid]) {
                     this.ss[sid] = { ...this.ss[sid], [field]: 'generating' };
+                } else {
+                    console.warn('[STUDIO ACTION] shot', sid, 'not found in ss! Keys:', Object.keys(this.ss).slice(0, 10));
                 }
-            }
-            const charGenMatch = url.match(/\/character\/(\d+)$/);
-            if (charGenMatch && !url.includes('approve') && !url.includes('reject')) {
-                // Character generation — poll will pick up the status
             }
 
             try {
                 const r = await fetch(url, { method: 'POST' });
                 const d = await r.json();
+                console.log('[STUDIO ACTION] response:', r.status, d);
                 if (!r.ok) alert(d.detail || 'Action failed');
                 // Quick re-poll after action
                 setTimeout(() => this.poll(), 500);
-            } catch (e) { alert('Request failed: ' + e.message); }
+            } catch (e) {
+                console.error('[STUDIO ACTION] error:', e);
+                alert('Request failed: ' + e.message);
+            }
         },
 
         async batchAction(url) {

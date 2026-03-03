@@ -17,13 +17,20 @@ router = APIRouter(prefix="/api/status")
 
 
 def _compute_asset_statuses(shot: Shot) -> tuple[str, str]:
-    """Compute per-asset statuses using Generation records for accuracy.
+    """Compute per-asset statuses using Generation records when available,
+    falling back to _derive_asset_statuses if generations aren't loaded."""
 
-    Unlike _derive_asset_statuses (which infers from the single shot.status
-    field), this checks the latest generation record for each asset type,
-    eliminating ambiguity for VEO3_CLIP shots where image and video are
-    separate workflows.
-    """
+    # Check if generations were eagerly loaded by testing the attribute
+    try:
+        gens = shot.generations
+    except Exception:
+        # Generations not loaded — fall back to the original derive function
+        return _derive_asset_statuses(shot)
+
+    # If no generation records exist, fall back to derive function
+    if not gens:
+        return _derive_asset_statuses(shot)
+
     is_clip = shot.shot_type == ShotType.VEO3_CLIP
 
     # --- image status from latest generation record ---
@@ -40,7 +47,7 @@ def _compute_asset_statuses(shot: Shot) -> tuple[str, str]:
         else:  # PENDING, REJECTED
             img_st = "pending"
     elif shot.image_path:
-        img_st = "approved"  # pre-existing / imported without a generation record
+        img_st = "approved"
     else:
         img_st = "pending"
 
