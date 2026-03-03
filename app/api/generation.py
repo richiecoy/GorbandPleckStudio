@@ -1,5 +1,8 @@
 """Generation management routes - trigger, approve, reject, redo, import, preview."""
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Body, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -87,7 +90,8 @@ async def generate_shot_image(
     if not shot.nano_prompt:
         raise HTTPException(status_code=400, detail="Shot has no Nano Banana prompt")
 
-    ref_urls = _get_reference_urls(shot)
+    ref_urls = await _get_reference_urls(shot, db)
+    logger.info(f"Shot {shot.number}: {len(ref_urls)} character refs")
 
     gen_type = (
         GenerationType.START_FRAME
@@ -252,9 +256,11 @@ async def approve_character(character_id: int, db: AsyncSession = Depends(get_db
     char.status = AssetStatus.APPROVED
 
     if char.reference_image_path and not char.reference_image_url:
-        url = await kie.upload_file(char.reference_image_path)
+        full_path = str(settings.asset_path / char.reference_image_path)
+        url = await kie.upload_file(full_path)
         if url:
             char.reference_image_url = url
+            logger.info(f"Character {char.name} approved + uploaded: {url}")
 
     await db.commit()
     return {"ok": True}
@@ -344,7 +350,7 @@ async def generate_all_images(episode_id: int, db: AsyncSession = Depends(get_db
         if not shot.nano_prompt:
             continue
 
-        ref_urls = _get_reference_urls(shot)
+        ref_urls = await _get_reference_urls(shot, db)
         gen_type = (
             GenerationType.START_FRAME
             if shot.shot_type == ShotType.VEO3_CLIP
@@ -494,7 +500,7 @@ async def preview_payload(
     if not shot:
         raise HTTPException(status_code=404)
 
-    ref_urls = _get_reference_urls(shot)
+    ref_urls = await _get_reference_urls(shot, db)
 
     preview = {
         "shot_id": shot.id,
@@ -758,8 +764,12 @@ async def _get_shot(shot_id: int, db: AsyncSession) -> Shot:
     return shot
 
 
-def _get_reference_urls(shot: Shot) -> list[str]:
-    """Gather approved character reference URLs for a shot."""
+async def _get_reference_urls(shot: Shot, db: AsyncSession) -> list[str]:
+    """Gather approved character reference URLs for a shot.
+    
+    If a character has a local image but no kie.ai URL, uploads it first
+    so it can be used as a reference in generation.
+    """
     urls = []
     if not shot.episode or not shot.episode.characters:
         return urls
@@ -768,7 +778,26 @@ def _get_reference_urls(shot: Shot) -> list[str]:
 
     for ref_name in (shot.character_refs or []):
         char = char_map.get(ref_name.lower())
-        if char and char.reference_image_url and char.status == AssetStatus.APPROVED:
+        if not char or char.status != AssetStatus.APPROVED:
+            continue
+
+        # Already have a URL — use it
+        if char.reference_image_url:
             urls.append(char.reference_image_url)
+            continue
+
+        # Have a local file but no URL — upload to kie.ai
+        if char.reference_image_path:
+            full_path = settings.asset_path / char.reference_image_path
+            if full_path.is_file():
+                logger.info(f"Uploading character ref for {char.name}: {full_path}")
+                uploaded_url = await kie.upload_file(str(full_path))
+                if uploaded_url:
+                    char.reference_image_url = uploaded_url
+                    await db.commit()
+                    urls.append(uploaded_url)
+                    logger.info(f"Character {char.name} ref uploaded: {uploaded_url}")
+                else:
+                    logger.warning(f"Failed to upload ref for {char.name}")
 
     return urls

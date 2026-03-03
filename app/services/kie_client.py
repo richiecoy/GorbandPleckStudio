@@ -24,7 +24,7 @@ class TaskResult:
 @dataclass
 class TaskStatus:
     task_id: str
-    status: str          # "pending", "processing", "success", "failed"
+    status: str          # "pending", "processing", "success", "failed", "poll_error"
     result_urls: list[str] | None = None
     error: str | None = None
 
@@ -34,7 +34,13 @@ class TaskStatus:
 
     @property
     def failed(self) -> bool:
+        """True only when kie.ai confirms the task itself failed."""
         return self.status in ("failed", "error")
+
+    @property
+    def poll_error(self) -> bool:
+        """True when we couldn't reach kie.ai — transient, don't mark as failed."""
+        return self.status == "poll_error"
 
 
 class KieClient:
@@ -148,29 +154,41 @@ class KieClient:
                     info = task_data.get("info", {})
                     status_val = task_data.get("status", "")
 
+                    logger.debug(
+                        f"Image poll {task_id}: status={status_val}, "
+                        f"info_keys={list(info.keys()) if info else 'none'}"
+                    )
+
                     # Map kie.ai statuses to our simplified model
                     if status_val in ("success", "completed"):
                         urls = info.get("images") or info.get("resultUrls") or []
                         if isinstance(urls, str):
                             urls = [urls]
+                        # Also check for nested image URLs
+                        if not urls and isinstance(info.get("output"), list):
+                            urls = info["output"]
+                        logger.info(f"Image poll {task_id}: SUCCESS, {len(urls)} URLs")
                         return TaskStatus(
                             task_id=task_id, status="success", result_urls=urls
                         )
                     elif status_val in ("failed", "error"):
+                        err_msg = info.get("errorMessage") or info.get("error") or "Generation failed"
+                        logger.info(f"Image poll {task_id}: FAILED - {err_msg}")
                         return TaskStatus(
                             task_id=task_id, status="failed",
-                            error=info.get("errorMessage", "Generation failed")
+                            error=err_msg
                         )
                     else:
                         return TaskStatus(task_id=task_id, status="processing")
 
+                logger.warning(f"Image status unexpected response: {data}")
                 return TaskStatus(
-                    task_id=task_id, status="failed",
-                    error=data.get("msg", "Unknown error")
+                    task_id=task_id, status="poll_error",
+                    error=data.get("msg", "Unexpected API response")
                 )
             except Exception as e:
                 logger.error(f"Image status poll error: {e}")
-                return TaskStatus(task_id=task_id, status="failed", error=str(e))
+                return TaskStatus(task_id=task_id, status="poll_error", error=str(e))
 
     # ── Video Generation (Veo 3) ─────────────────────────────────────
 
@@ -237,6 +255,11 @@ class KieClient:
                     info = task_data.get("info", {})
                     status_val = task_data.get("status", "")
 
+                    logger.debug(
+                        f"Video poll {task_id}: status={status_val}, "
+                        f"info_keys={list(info.keys()) if info else 'none'}"
+                    )
+
                     if status_val in ("success", "completed"):
                         urls = info.get("resultUrls") or []
                         if isinstance(urls, str):
@@ -245,24 +268,28 @@ class KieClient:
                                 urls = _json.loads(urls)
                             except Exception:
                                 urls = [urls]
+                        logger.info(f"Video poll {task_id}: SUCCESS, {len(urls)} URLs")
                         return TaskStatus(
                             task_id=task_id, status="success", result_urls=urls
                         )
                     elif status_val in ("failed", "error"):
+                        err_msg = info.get("errorMessage") or info.get("error") or "Generation failed"
+                        logger.info(f"Video poll {task_id}: FAILED - {err_msg}")
                         return TaskStatus(
                             task_id=task_id, status="failed",
-                            error=info.get("errorMessage", "Generation failed")
+                            error=err_msg
                         )
                     else:
                         return TaskStatus(task_id=task_id, status="processing")
 
+                logger.warning(f"Video status unexpected response: {data}")
                 return TaskStatus(
-                    task_id=task_id, status="failed",
-                    error=data.get("msg", "Unknown error")
+                    task_id=task_id, status="poll_error",
+                    error=data.get("msg", "Unexpected API response")
                 )
             except Exception as e:
                 logger.error(f"Video status poll error: {e}")
-                return TaskStatus(task_id=task_id, status="failed", error=str(e))
+                return TaskStatus(task_id=task_id, status="poll_error", error=str(e))
 
     # ── Download Generated Assets ────────────────────────────────────
 

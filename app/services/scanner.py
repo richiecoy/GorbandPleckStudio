@@ -146,8 +146,20 @@ async def _auto_parse(episode: Episode, db: AsyncSession):
         if not char.is_main:
             await db.delete(char)
 
-    # Create characters
+    # Ensure main characters exist (Gorb & Pleck)
     existing_names = {c.name for c in episode.characters}
+    for main_name in ("Gorb", "Pleck"):
+        if main_name not in existing_names:
+            db.add(Character(
+                episode_id=episode.id,
+                name=main_name,
+                description=f"Main character — {main_name}",
+                is_main=True,
+            ))
+            existing_names.add(main_name)
+            logger.info(f"Created main character record: {main_name} for {episode.slug}")
+
+    # Create bystander characters
     for pc in parsed.characters:
         if pc.name not in existing_names:
             char = Character(
@@ -291,6 +303,39 @@ async def _link_existing_assets(episode_id: int, db: AsyncSession):
             )
             shot.video_path = rel_path
             logger.info(f"Linked video: shot {shot_num} -> {rel_path}")
+
+    # ── Link global main character references ──
+    global_chars_dir = settings.asset_path / "characters"
+    if global_chars_dir.is_dir():
+        # Re-query to pick up freshly created main character records
+        char_result = await db.execute(
+            select(Character)
+            .where(Character.episode_id == episode_id)
+            .where(Character.is_main == True)
+        )
+        main_chars = char_result.scalars().all()
+
+        for char in main_chars:
+            if char.reference_image_path:
+                continue  # Already linked
+            # Look for name.png, name.jpg etc.
+            for f in global_chars_dir.iterdir():
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                    continue
+                if f.stem.lower() == char.name.lower():
+                    rel_path = str(f.relative_to(settings.asset_path))
+                    await db.execute(
+                        update(Character)
+                        .where(Character.id == char.id)
+                        .values(
+                            reference_image_path=rel_path,
+                            status=AssetStatus.APPROVED,
+                        )
+                    )
+                    logger.info(f"Linked global character ref: {char.name} -> {rel_path}")
+                    break
 
     await db.flush()
     logger.info(f"Asset linking complete for {episode.slug}: {linked_count} images linked")

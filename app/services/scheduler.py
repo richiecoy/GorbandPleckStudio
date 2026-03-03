@@ -45,7 +45,15 @@ async def poll_pending_generations():
                 else:
                     status = await kie.get_image_status(gen.task_id)
 
-                if status.status == "success" and status.result_urls:
+                # Transient poll error — skip this cycle, try again later
+                if status.poll_error:
+                    logger.warning(
+                        f"Poll error for gen {gen.id} (task {gen.task_id}): "
+                        f"{status.error} — will retry next cycle"
+                    )
+                    continue
+
+                if status.done and status.result_urls:
                     # Download the first result
                     url = status.result_urls[0]
                     gen.result_url = url
@@ -74,11 +82,14 @@ async def poll_pending_generations():
                             gen.character.reference_image_path = rel_path
                             gen.character.reference_image_url = url
                             gen.character.status = AssetStatus.REVIEW
+
+                        logger.info(f"Gen {gen.id} completed → {rel_path}")
                     else:
                         gen.status = AssetStatus.FAILED
                         gen.error_message = "Download failed"
+                        logger.error(f"Gen {gen.id}: download failed for {url}")
 
-                elif status.status == "failed":
+                elif status.failed:
                     gen.status = AssetStatus.FAILED
                     gen.error_message = status.error or "Generation failed"
                     gen.completed_at = datetime.now(timezone.utc)
@@ -87,6 +98,8 @@ async def poll_pending_generations():
                         gen.shot.status = AssetStatus.FAILED
                     elif gen.character:
                         gen.character.status = AssetStatus.FAILED
+
+                    logger.info(f"Gen {gen.id} failed: {status.error}")
 
                 # "processing" = still running, no change needed
 
