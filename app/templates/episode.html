@@ -378,16 +378,19 @@ function episodePage(episodeId) {
             return this.shotInit[id]?.video_status || 'locked';
         },
 
+        _assetUrl(path) {
+            if (!path) return null;
+            return '/assets/' + path.split('/').map(s => encodeURIComponent(s)).join('/');
+        },
+
         imgSrc(id) {
             const s = this._shot(id);
-            const path = s?.image_path || this.shotInit[id]?.image_path;
-            return path ? '/assets/' + encodeURI(path) : null;
+            return this._assetUrl(s?.image_path || this.shotInit[id]?.image_path);
         },
 
         vidSrc(id) {
             const s = this._shot(id);
-            const path = s?.video_path || this.shotInit[id]?.video_path;
-            return path ? '/assets/' + encodeURI(path) : null;
+            return this._assetUrl(s?.video_path || this.shotInit[id]?.video_path);
         },
 
         shotBorderClass(id) {

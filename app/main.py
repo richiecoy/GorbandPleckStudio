@@ -79,7 +79,7 @@ import json
 from urllib.parse import quote as urlquote
 
 templates = Jinja2Templates(directory=str(template_dir))
-templates.env.filters["urlencode_path"] = lambda s: urlquote(str(s), safe="/")
+templates.env.filters["urlencode_path"] = lambda s: '/'.join(urlquote(seg, safe='') for seg in str(s).split('/'))
 from markupsafe import Markup
 templates.env.filters["tojson"] = lambda v: Markup(json.dumps(v))
 app.state.templates = templates
